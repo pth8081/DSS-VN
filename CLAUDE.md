@@ -1,5 +1,12 @@
 # Ghi chú cho Claude khi làm việc trên repo này
 
+Dự án: **DSS-VN** — Nền tảng Quản trị Vận hành Phân phối CNTT. Tài liệu phân
+tích nghiệp vụ & thiết kế gốc: `thiet_ke_he_thong_phan_phoi_cntt.md` (thư mục
+gốc) — đọc trước khi thêm/sửa module nghiệp vụ, đặc biệt nguyên tắc thiết kế
+xuyên suốt ở Mục 0.2 (seat-based, Zero Trust, tách biệt nhiệm vụ, chặn ở CSDL,
+cấu hình được không hardcode) áp dụng cho MỌI module, không chỉ module đã có.
+README.md nêu rõ module nào đã triển khai (Giai đoạn 1) và module nào chưa.
+
 ## Lưu ý bắt buộc khi báo cáo thay đổi liên quan tới deploy
 
 Người dùng chạy `server/` trên máy chủ thật riêng, KHÔNG tự động đồng bộ code
@@ -36,27 +43,31 @@ version DUY NHẤT client đọc (badge góc màn hình + `/api/health`, xem
 Nếu lỡ quên ở 1-2 lần merge trước, bump bắt kịp luôn (cộng dồn số lần đã bỏ
 lỡ) ở lần merge kế tiếp thay vì bỏ qua.
 
-**Định dạng version (từ v2.0 trở đi, KHÔNG còn semver 3 phần):** chỉ 2 số
-`MAJOR.MINOR` (VD `"2.0"`, `"2.1"`... không có số thứ 3 kiểu `.0` ở cuối).
-MINOR chỉ chạy từ 0 đến 9 — mỗi lần merge tăng MINOR lên 1 (`2.0`→`2.1`→...→
-`2.9`), và lần merge NGAY SAU khi đang ở `X.9` thì tăng MAJOR lên 1 và reset
-MINOR về 0 (`2.9`→`3.0`→`3.1`...). Không phân biệt patch/minor theo mức độ
-thay đổi nữa — mọi lần merge (dù fix nhỏ hay tính năng lớn) đều tăng đúng 1
-bậc theo quy tắc này. Version trước v2.0 (`1.75.0`...`1.102.0`, kiểu semver 3
-phần cũ) đã ngừng dùng — không lùi lại đổi các bản ghi lịch sử cũ.
+**Định dạng version: chỉ 2 số `MAJOR.MINOR`** (VD `"1.0"`, `"1.1"`... không có
+số thứ 3 kiểu `.0` ở cuối). MINOR chỉ chạy từ 0 đến 9 — mỗi lần merge tăng
+MINOR lên 1 (`1.0`→`1.1`→...→`1.9`), và lần merge NGAY SAU khi đang ở `X.9`
+thì tăng MAJOR lên 1 và reset MINOR về 0 (`1.9`→`2.0`→`2.1`...). Không phân
+biệt patch/minor theo mức độ thay đổi nữa — mọi lần merge (dù fix nhỏ hay
+tính năng lớn) đều tăng đúng 1 bậc theo quy tắc này.
+
+DSS-VN (hệ thống Phân phối CNTT, từ `1.0`) là dự án hoàn toàn mới, KHÔNG liên
+quan tới lịch sử version của hệ thống VPDT (Văn phòng điện tử) trước đây từng
+mô tả ở README/CLAUDE.md cũ trong repo này (semver 3 phần `1.75.0`...`1.102.0`,
+rồi `2.0`...) — không lấy lại hay tiếp nối dãy số đó.
 
 ## Ô tìm-kiếm-gõ-chọn (searchable picker): KHÔNG dùng `<input list>`+`<datalist>` native
 
 Cơ chế `<datalist>` gốc của trình duyệt không đáng tin cậy trên nhiều
 trình duyệt/thiết bị (đã xác nhận lỗi thực tế trên Chrome/Firefox/Edge
-desktop lẫn Chrome-Samsung/Safari-iPhone dù dữ liệu/logic lọc phía sau
-vẫn đúng — xem lịch sử ở block `sdd*` trong `public/index.html`, ngay
-trước `renderPeopleMultiSelect()`). Toàn bộ 19 điểm dùng datalist trong
-hệ thống đã được thay bằng widget JS tự dựng, không phụ thuộc thư viện
-ngoài: `sddSetOptions(dropdownId, items)` để nạp danh sách, input dùng
-`data-sdd-list="dropdownId"` (thay cho `list="..."`), dropdown là
+desktop lẫn Chrome-Samsung/Safari-iPhone ở hệ thống VPDT trước đây, dù dữ
+liệu/logic lọc phía sau vẫn đúng). DSS-VN dùng ngay từ đầu 1 widget JS tự
+dựng, không phụ thuộc thư viện ngoài, cài đặt tại `server/public/index.html`
+(hàm `sddSetOptions`/`sddRenderDropdown`/`sddValue`/`sddClear`, khối comment
+"Ô tìm-kiếm-gõ-chọn tự dựng"): `sddSetOptions(dropdownId, items)` nạp danh
+sách `{id, label, sub?}`, input dùng `data-sdd-list="dropdownId"` (thay cho
+`list="..."`), dropdown là
 `<div id="dropdownId" class="hidden sdd-dropdown" data-sdd-dropdown></div>`
-(thay cho `<datalist>`). Xem chú thích 3 bước migrate ngay tại block
-`sdd*`. **Mọi ô tìm-kiếm-gõ-chọn mới từ giờ trở đi phải dùng cơ chế này**
-(hoặc `renderPeopleMultiSelect()`/dropdown tự dựng tương tự nếu cần
-multi-select thật sự) — không quay lại `<datalist>` native.
+(thay cho `<datalist>`), giá trị đã chọn đọc qua `sddValue(inputId)`.
+**Mọi ô tìm-kiếm-gõ-chọn mới từ giờ trở đi phải dùng cơ chế này** (hoặc 1
+dropdown tự dựng tương tự nếu cần multi-select thật sự) — không dùng
+`<datalist>` native.

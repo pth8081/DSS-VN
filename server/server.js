@@ -14,6 +14,8 @@ const systemRoutes = require('./routes/system');
 const dealerRoutes = require('./routes/dealers');
 const projectRoutes = require('./routes/projects');
 const salesRoutes = require('./routes/sales');
+const financeRoutes = require('./routes/finance');
+const externalRoutes = require('./routes/external');
 const { runExpirySweep } = require('./jobs/expireReservations');
 
 const app = express();
@@ -34,6 +36,8 @@ app.use('/api/system', systemRoutes);
 app.use('/api/dealers', dealerRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/sales', salesRoutes);
+app.use('/api/finance', financeRoutes);
+app.use('/api/external', externalRoutes);
 
 app.use((req, res) => {
   res.status(404).json({ error: 'Không tìm thấy endpoint' });

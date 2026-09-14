@@ -21,11 +21,15 @@ router.get('/', async (req, res) => {
     SELECT d.*, t.TierName, t.DefaultCreditLimit, t.DefaultPaymentTermDays, t.DefaultMaxDiscountPct,
            r.RegionName, e.FullName AS AssignedSalesName,
            COALESCE(d.CreditLimitOverride, t.DefaultCreditLimit, 0) AS EffectiveCreditLimit,
-           COALESCE(d.PaymentTermDaysOverride, t.DefaultPaymentTermDays, 0) AS EffectivePaymentTermDays
+           COALESCE(d.PaymentTermDaysOverride, t.DefaultPaymentTermDays, 0) AS EffectivePaymentTermDays,
+           ISNULL(ledger.CurrentDebt, 0) AS CurrentDebt,
+           CASE WHEN ISNULL(ledger.CurrentDebt, 0) > COALESCE(d.CreditLimitOverride, t.DefaultCreditLimit, 0)
+                THEN 1 ELSE 0 END AS OverCredit
     FROM dbo.Dealers d
     LEFT JOIN dbo.DealerTiers t ON t.TierId = d.TierId
     LEFT JOIN dbo.Regions r ON r.RegionId = d.RegionId
     LEFT JOIN dbo.Employees e ON e.EmployeeId = d.AssignedSalesId
+    OUTER APPLY (SELECT SUM(Amount) AS CurrentDebt FROM dbo.DealerLedger WHERE DealerId = d.DealerId) ledger
     ORDER BY d.DealerName`);
   res.json(result.recordset);
 });
@@ -141,6 +145,17 @@ router.get('/credit-review-candidates', requirePerm('dealerCreditOverride'), asy
       AND (lastReview.LastReviewDate IS NULL OR lastReview.LastReviewDate <= DATEADD(MONTH, -3, CAST(SYSUTCDATETIME() AS DATE)))
     ORDER BY d.OnboardedAt`);
   res.json(result.recordset);
+});
+
+// --- Sổ cái công nợ (Module 8) — append-only, chỉ đọc qua route này ---
+
+router.get('/:id/ledger', requirePerm('reportViewFinance'), async (req, res) => {
+  const pool = await getPool();
+  const entries = await pool.request().input('id', sql.Int, req.params.id)
+    .query('SELECT * FROM dbo.DealerLedger WHERE DealerId = @id ORDER BY EntryDate DESC, LedgerId DESC');
+  const debt = await pool.request().input('id', sql.Int, req.params.id)
+    .query('SELECT ISNULL(SUM(Amount), 0) AS CurrentDebt FROM dbo.DealerLedger WHERE DealerId = @id');
+  res.json({ currentDebt: debt.recordset[0].CurrentDebt, entries: entries.recordset });
 });
 
 module.exports = router;

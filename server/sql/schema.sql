@@ -589,20 +589,144 @@ BEGIN
 END
 GO
 
+-- ============================================================================
+-- MODULE 7: PHÊ DUYỆT BÁN HÀNG — MA TRẬN CHUẨN/NGOẠI LỆ — Giai đoạn 3
+--
+-- Engine phê duyệt đa bước DÙNG CHUNG (ApprovalInstances/ApprovalSteps) —
+-- không viết riêng cho từng module, đúng nguyên tắc Module 7 tài liệu thiết
+-- kế. RefType hiện chỉ có 'SalesOrder'; module khác cần phê duyệt nhiều bước
+-- sau này (VD đổi hạng/hạn mức đại lý) tái sử dụng đúng 2 bảng này.
+-- ============================================================================
+
+IF OBJECT_ID('dbo.ApprovalMatrixRules') IS NULL
+BEGIN
+    CREATE TABLE dbo.ApprovalMatrixRules (
+        RuleId              INT IDENTITY PRIMARY KEY,
+        ConditionType       NVARCHAR(30) NOT NULL,   -- STANDARD / OVER_CREDIT / OVER_DISCOUNT / BOTH
+        StepOrder            INT NOT NULL,
+        ApproverMode          NVARCHAR(20) NOT NULL,   -- POSITION / DEPARTMENT / PERSON
+        ApproverPositionId    INT NULL REFERENCES dbo.Positions(PositionId),
+        ApproverDepartment    NVARCHAR(150) NULL,
+        ApproverEmployeeId    INT NULL REFERENCES dbo.Employees(EmployeeId),
+        IsRequired            BIT NOT NULL DEFAULT 1,
+        CONSTRAINT UQ_ApprovalMatrixRules UNIQUE (ConditionType, StepOrder)
+    );
+END
+GO
+
+IF OBJECT_ID('dbo.ApprovalInstances') IS NULL
+BEGIN
+    CREATE TABLE dbo.ApprovalInstances (
+        InstanceId      BIGINT IDENTITY PRIMARY KEY,
+        RefType          NVARCHAR(30) NOT NULL,
+        RefId             BIGINT NOT NULL,
+        ConditionType     NVARCHAR(30) NOT NULL,
+        Status            NVARCHAR(20) NOT NULL DEFAULT 'IN_PROGRESS',   -- IN_PROGRESS / APPROVED / REJECTED
+        CreatedAt         DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+    );
+END
+GO
+
+IF OBJECT_ID('dbo.ApprovalSteps') IS NULL
+BEGIN
+    CREATE TABLE dbo.ApprovalSteps (
+        StepId               BIGINT IDENTITY PRIMARY KEY,
+        InstanceId            BIGINT NOT NULL REFERENCES dbo.ApprovalInstances(InstanceId),
+        StepOrder              INT NOT NULL,
+        ApproverMode            NVARCHAR(20) NOT NULL,
+        ApproverPositionId      INT NULL,
+        ApproverDepartment      NVARCHAR(150) NULL,
+        ApproverEmployeeId      INT NULL,
+        Status                  NVARCHAR(20) NOT NULL DEFAULT 'PENDING',  -- PENDING / APPROVED / REJECTED
+        DecidedByUserId          INT NULL,
+        DecidedAt                DATETIME2 NULL,
+        Comment                  NVARCHAR(500) NULL
+    );
+END
+GO
+
+-- ============================================================================
+-- MODULE 8: CÔNG NỢ ĐẠI LÝ + API TÍCH HỢP KẾ TOÁN — Giai đoạn 3
+-- ============================================================================
+
+IF OBJECT_ID('dbo.DealerLedger') IS NULL
+BEGIN
+    CREATE TABLE dbo.DealerLedger (
+        LedgerId                BIGINT IDENTITY PRIMARY KEY,
+        DealerId                 INT NOT NULL REFERENCES dbo.Dealers(DealerId),
+        EntryType                 NVARCHAR(20) NOT NULL,   -- INVOICE / PAYMENT / CREDIT_NOTE
+        Amount                    DECIMAL(18,2) NOT NULL,
+        RefType                   NVARCHAR(30) NULL,
+        RefId                     BIGINT NULL,
+        Note                      NVARCHAR(200) NULL,   -- VD số chứng từ/referenceNo từ hệ thống kế toán ngoài
+        EntryDate                  DATE NOT NULL DEFAULT CAST(SYSUTCDATETIME() AS DATE),
+        SyncedToAccountingAt       DATETIME2 NULL,
+        CreatedAt                  DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+    );
+END
+GO
+
+-- Công nợ hiện tại = SUM(Amount) — tính động (Mục 8.1), không lưu cột riêng dễ lệch dữ liệu.
+-- Append-only: chặn hẳn UPDATE/DELETE ở CSDL (không chỉ ở tầng ứng dụng) —
+-- đúng nguyên tắc "Chặn ở CSDL" áp dụng cho sổ cái công nợ.
+CREATE OR ALTER TRIGGER dbo.trg_DealerLedger_AppendOnly
+ON dbo.DealerLedger
+INSTEAD OF UPDATE, DELETE
+AS
+BEGIN
+    THROW 50040, N'dbo.DealerLedger là sổ cái chỉ được thêm dòng mới (append-only), không được sửa/xóa', 1;
+END
+GO
+
+-- Hàng đợi trung gian độc lập nhà cung cấp kế toán (Adapter Pattern, Mục 8.2)
+-- — PayloadJson dạng chuẩn hoá (canonical), CHƯA map theo định dạng riêng của
+-- từng phần mềm kế toán cụ thể. Việc gửi đi thật (MISA/Fast/Excel...) do 1
+-- worker/adapter riêng xử lý sau này, ngoài phạm vi Giai đoạn 3 — bảng này
+-- chỉ đảm bảo mọi hoá đơn phát sinh đều được ghi nhận, không chặn luồng bán
+-- hàng vì thiếu tích hợp kế toán thật.
+IF OBJECT_ID('dbo.AccountingSyncQueue') IS NULL
+BEGIN
+    CREATE TABLE dbo.AccountingSyncQueue (
+        QueueId          BIGINT IDENTITY PRIMARY KEY,
+        EntryType          NVARCHAR(20) NOT NULL,   -- INVOICE / PAYMENT_CONFIRM
+        PayloadJson         NVARCHAR(MAX) NOT NULL,
+        Status               NVARCHAR(20) NOT NULL DEFAULT 'PENDING',   -- PENDING / SENT / FAILED
+        RetryCount            INT NOT NULL DEFAULT 0,
+        LastError              NVARCHAR(1000) NULL,
+        CreatedAt               DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+        SentAt                   DATETIME2 NULL
+    );
+END
+GO
+
 -- Gửi duyệt đơn hàng: giữ hàng thật cho TỪNG dòng sản phẩm (qua ReserveStock —
 -- dùng lại đúng 1 cơ chế giữ hàng cho mọi kênh, nguyên tắc Omnichannel bắt
--- buộc ở Module 6), tính lại tổng tiền, đặt hạn giữ hàng theo kênh.
+-- buộc ở Module 6), tính lại tổng tiền, đặt hạn giữ hàng theo kênh, rồi:
+-- - Retail (B2C) trả trước: KHÔNG qua ma trận phê duyệt (Mục 15.5/7.2) — tự
+--   động chuyển thẳng APPROVED.
+-- - B2B (Đại lý/Dự án): tính evaluateIsStandardDeal ngay tại server (Zero
+--   Trust — không tin dữ liệu do client tự đánh giá), tra đúng bộ bước duyệt
+--   trong ApprovalMatrixRules theo ConditionType, sinh ApprovalInstance +
+--   ApprovalSteps. Chốt cứng hạn mức còn lại tại đúng thời điểm này
+--   (CreditCheckedAt/CreditAvailableAtCheck — Mục 7.3), dùng SUM(DealerLedger)
+--   làm công nợ hiện tại (Mục 8.1).
 CREATE OR ALTER PROCEDURE dbo.SubmitSalesOrder
     @OrderId BIGINT, @ReservationHours DECIMAL(6,2)
 AS
 BEGIN
     SET NOCOUNT ON;
-    DECLARE @Status NVARCHAR(20), @WarehouseId INT;
-    SELECT @Status = Status, @WarehouseId = WarehouseId FROM dbo.SalesOrders WHERE OrderId = @OrderId;
+    DECLARE @Status NVARCHAR(20), @WarehouseId INT, @DealerId INT, @RequiresCredit BIT, @PaymentTermDays INT;
+    SELECT @Status = Status, @WarehouseId = WarehouseId, @DealerId = DealerId,
+           @RequiresCredit = RequiresCreditCheck, @PaymentTermDays = PaymentTermDays
+    FROM dbo.SalesOrders WHERE OrderId = @OrderId;
     IF @Status IS NULL THROW 50030, N'Không tìm thấy đơn hàng', 1;
     IF @Status <> 'DRAFT' THROW 50031, N'Chỉ có thể gửi duyệt đơn hàng đang ở trạng thái NHÁP', 1;
     IF NOT EXISTS (SELECT 1 FROM dbo.SalesOrderItems WHERE OrderId = @OrderId)
         THROW 50032, N'Đơn hàng chưa có sản phẩm nào', 1;
+
+    IF @RequiresCredit = 1 AND @DealerId IS NOT NULL AND EXISTS (
+        SELECT 1 FROM dbo.Dealers WHERE DealerId = @DealerId AND Status <> 'ACTIVE')
+        THROW 50037, N'Đại lý đang bị tạm ngưng/đưa vào danh sách đen, không thể gửi duyệt đơn hàng', 1;
 
     BEGIN TRANSACTION;
     BEGIN TRY
@@ -623,9 +747,71 @@ BEGIN
         SELECT @Total = SUM(LineTotal) FROM dbo.SalesOrderItems WHERE OrderId = @OrderId;
 
         UPDATE dbo.SalesOrders
-        SET Status = 'PENDING_APPROVAL', TotalAmount = @Total,
+        SET TotalAmount = @Total,
             ReservationExpiresAt = DATEADD(MINUTE, CAST(@ReservationHours * 60 AS INT), SYSUTCDATETIME())
         WHERE OrderId = @OrderId;
+
+        DECLARE @ConditionType NVARCHAR(30), @IsStandard BIT, @EffectiveCreditLimit DECIMAL(18,2), @CurrentDebt DECIMAL(18,2);
+
+        IF @RequiresCredit = 0
+        BEGIN
+            -- Retail (B2C) trả trước: không qua ma trận phê duyệt (Mục 15.5/7.2).
+            UPDATE dbo.SalesOrders SET Status = 'APPROVED', IsStandardDeal = 1 WHERE OrderId = @OrderId;
+        END
+        ELSE
+        BEGIN
+            IF @DealerId IS NOT NULL
+            BEGIN
+                DECLARE @EffectivePaymentTermDays INT, @TierMaxDiscountPct DECIMAL(5,2);
+                SELECT @EffectiveCreditLimit = COALESCE(d.CreditLimitOverride, t.DefaultCreditLimit, 0),
+                       @EffectivePaymentTermDays = COALESCE(d.PaymentTermDaysOverride, t.DefaultPaymentTermDays, 0),
+                       @TierMaxDiscountPct = t.DefaultMaxDiscountPct
+                FROM dbo.Dealers d LEFT JOIN dbo.DealerTiers t ON t.TierId = d.TierId
+                WHERE d.DealerId = @DealerId;
+
+                SELECT @CurrentDebt = ISNULL(SUM(Amount), 0) FROM dbo.DealerLedger WHERE DealerId = @DealerId;
+
+                DECLARE @OverCredit BIT = CASE WHEN (@CurrentDebt + @Total) > @EffectiveCreditLimit THEN 1 ELSE 0 END;
+                DECLARE @OverTerm BIT = CASE WHEN @PaymentTermDays > @EffectivePaymentTermDays THEN 1 ELSE 0 END;
+                -- Vượt khung chiết khấu: bất kỳ dòng hàng nào có %CK áp dụng vượt %CK tự quyết tối đa theo hạng.
+                DECLARE @OverDiscount BIT = CASE WHEN EXISTS (
+                    SELECT 1 FROM dbo.SalesOrderItems WHERE OrderId = @OrderId AND DiscountPct > ISNULL(@TierMaxDiscountPct, 0)
+                ) THEN 1 ELSE 0 END;
+
+                SET @IsStandard = CASE WHEN @OverCredit=0 AND @OverTerm=0 AND @OverDiscount=0 THEN 1 ELSE 0 END;
+                SET @ConditionType =
+                    CASE WHEN @IsStandard = 1 THEN 'STANDARD'
+                         WHEN (@OverCredit=1 OR @OverTerm=1) AND @OverDiscount=1 THEN 'BOTH'
+                         WHEN @OverCredit=1 OR @OverTerm=1 THEN 'OVER_CREDIT'
+                         ELSE 'OVER_DISCOUNT' END;
+            END
+            ELSE
+            BEGIN
+                -- Đơn Khách hàng dự án (không gắn Đại lý cụ thể): chưa có khái niệm
+                -- hạn mức/hạng như Đại lý (Module 5 không có trường này) — luôn coi
+                -- là đơn CHUẨN, vẫn qua đúng 1 cấp duyệt của ma trận STANDARD thay vì
+                -- tự động duyệt để tránh bỏ sót kiểm soát.
+                SET @IsStandard = 1;
+                SET @ConditionType = 'STANDARD';
+            END
+
+            IF NOT EXISTS (SELECT 1 FROM dbo.ApprovalMatrixRules WHERE ConditionType = @ConditionType)
+                THROW 50038, N'Chưa cấu hình ma trận phê duyệt cho loại đơn hàng này — liên hệ quản trị viên', 1;
+
+            UPDATE dbo.SalesOrders
+            SET Status = 'PENDING_APPROVAL', IsStandardDeal = @IsStandard,
+                CreditCheckedAt = SYSUTCDATETIME(), CreditAvailableAtCheck = @EffectiveCreditLimit - @CurrentDebt
+            WHERE OrderId = @OrderId;
+
+            DECLARE @InstanceId BIGINT;
+            INSERT INTO dbo.ApprovalInstances (RefType, RefId, ConditionType)
+            VALUES ('SalesOrder', @OrderId, @ConditionType);
+            SET @InstanceId = SCOPE_IDENTITY();
+
+            INSERT INTO dbo.ApprovalSteps (InstanceId, StepOrder, ApproverMode, ApproverPositionId, ApproverDepartment, ApproverEmployeeId)
+            SELECT @InstanceId, StepOrder, ApproverMode, ApproverPositionId, ApproverDepartment, ApproverEmployeeId
+            FROM dbo.ApprovalMatrixRules WHERE ConditionType = @ConditionType ORDER BY StepOrder;
+        END
 
         COMMIT;
     END TRY
@@ -680,19 +866,190 @@ BEGIN
 END
 GO
 
+-- Xử lý 1 bước duyệt của đơn hàng: chỉ bước đang PENDING có StepOrder nhỏ
+-- nhất mới được quyết định (chặn duyệt vượt bước ở CSDL). Từ chối ở BẤT KỲ
+-- bước nào → hồ sơ bị từ chối ngay (Mục 7 nguyên tắc "1 người phản đối là đủ
+-- để chặn"), nhả toàn bộ tồn kho đã giữ, đơn chuyển HỦY. Duyệt xong bước cuối
+-- → đơn chuyển ĐÃ DUYỆT, sẵn sàng xuất kho (FulfillSalesOrder).
+CREATE OR ALTER PROCEDURE dbo.DecideSalesOrderApproval
+    @OrderId BIGINT, @StepId BIGINT, @Decision NVARCHAR(20), @DecidedByUserId INT, @Comment NVARCHAR(500) = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    IF @Decision NOT IN ('APPROVED','REJECTED') THROW 50041, N'Quyết định không hợp lệ', 1;
+
+    DECLARE @InstanceId BIGINT, @StepStatus NVARCHAR(20), @StepOrder INT, @InstanceRefId BIGINT, @InstanceRefType NVARCHAR(30);
+    SELECT @InstanceId=InstanceId, @StepStatus=Status, @StepOrder=StepOrder FROM dbo.ApprovalSteps WHERE StepId=@StepId;
+    IF @InstanceId IS NULL THROW 50042, N'Không tìm thấy bước duyệt', 1;
+
+    SELECT @InstanceRefId=RefId, @InstanceRefType=RefType FROM dbo.ApprovalInstances WHERE InstanceId=@InstanceId;
+    IF @InstanceRefType <> 'SalesOrder' OR @InstanceRefId <> @OrderId THROW 50045, N'Bước duyệt không khớp đơn hàng', 1;
+    IF @StepStatus <> 'PENDING' THROW 50043, N'Bước duyệt này đã được xử lý', 1;
+
+    DECLARE @CurrentMinOrder INT;
+    SELECT @CurrentMinOrder = MIN(StepOrder) FROM dbo.ApprovalSteps WHERE InstanceId=@InstanceId AND Status='PENDING';
+    IF @StepOrder <> @CurrentMinOrder THROW 50044, N'Chưa đến lượt bước duyệt này', 1;
+
+    BEGIN TRANSACTION;
+    BEGIN TRY
+        UPDATE dbo.ApprovalSteps SET Status=@Decision, DecidedByUserId=@DecidedByUserId, DecidedAt=SYSUTCDATETIME(), Comment=@Comment
+        WHERE StepId=@StepId;
+
+        IF @Decision = 'REJECTED'
+        BEGIN
+            UPDATE dbo.ApprovalInstances SET Status='REJECTED' WHERE InstanceId=@InstanceId;
+
+            DECLARE @WarehouseId INT;
+            SELECT @WarehouseId = WarehouseId FROM dbo.SalesOrders WHERE OrderId=@OrderId;
+            DECLARE @ProductId INT, @Qty DECIMAL(18,2);
+            DECLARE item_cursor CURSOR LOCAL FAST_FORWARD FOR
+                SELECT ProductId, Quantity FROM dbo.SalesOrderItems WHERE OrderId = @OrderId;
+            OPEN item_cursor;
+            FETCH NEXT FROM item_cursor INTO @ProductId, @Qty;
+            WHILE @@FETCH_STATUS = 0
+            BEGIN
+                EXEC dbo.ReleaseStock @ProductId=@ProductId, @WarehouseId=@WarehouseId, @Qty=@Qty, @RefType='SalesOrder', @RefId=@OrderId;
+                FETCH NEXT FROM item_cursor INTO @ProductId, @Qty;
+            END
+            CLOSE item_cursor; DEALLOCATE item_cursor;
+
+            UPDATE dbo.SalesOrders SET Status='CANCELLED' WHERE OrderId=@OrderId;
+        END
+        ELSE IF NOT EXISTS (SELECT 1 FROM dbo.ApprovalSteps WHERE InstanceId=@InstanceId AND Status='PENDING')
+        BEGIN
+            UPDATE dbo.ApprovalInstances SET Status='APPROVED' WHERE InstanceId=@InstanceId;
+            UPDATE dbo.SalesOrders SET Status='APPROVED' WHERE OrderId=@OrderId;
+        END
+
+        COMMIT;
+    END TRY
+    BEGIN CATCH
+        IF XACT_STATE() <> 0 ROLLBACK;
+        THROW;
+    END CATCH
+END
+GO
+
+-- Xuất kho thật cho 1 dòng hàng đã có sẵn giữ chỗ (Reserved) — chuyển từ
+-- "đã giữ" sang "đã xuất", KHÔNG đổi OnHandQty ngoài phần đang giữ của chính
+-- dòng này (tách biệt khỏi ImportStock/AdjustStock/TransferStock).
+CREATE OR ALTER PROCEDURE dbo.ExportSoldStock
+    @ProductId INT, @WarehouseId INT, @Qty DECIMAL(18,2),
+    @RefType NVARCHAR(30) = NULL, @RefId BIGINT = NULL, @CreatedBy NVARCHAR(100) = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    IF @Qty <= 0 THROW 50016, N'Số lượng xuất kho phải lớn hơn 0', 1;
+
+    BEGIN TRANSACTION;
+    BEGIN TRY
+        DECLARE @OnHand DECIMAL(18,2), @Reserved DECIMAL(18,2), @Cost DECIMAL(18,4);
+        SELECT @OnHand=OnHandQty, @Reserved=ReservedQty, @Cost=AvgCost FROM dbo.InventoryBalances WITH (UPDLOCK, ROWLOCK)
+        WHERE ProductId=@ProductId AND WarehouseId=@WarehouseId;
+
+        IF @OnHand IS NULL OR @Reserved < @Qty OR @OnHand < @Qty
+            THROW 50017, N'Không đủ tồn kho đã giữ để xuất kho', 1;
+
+        UPDATE dbo.InventoryBalances SET OnHandQty = OnHandQty - @Qty, ReservedQty = ReservedQty - @Qty
+        WHERE ProductId=@ProductId AND WarehouseId=@WarehouseId;
+
+        INSERT INTO dbo.InventoryTransactions (ProductId, WarehouseId, TransType, Quantity, UnitCost, RefType, RefId, CreatedBy)
+        VALUES (@ProductId, @WarehouseId, 'EXPORT_SALE', @Qty, @Cost, @RefType, @RefId, @CreatedBy);
+
+        COMMIT;
+    END TRY
+    BEGIN CATCH
+        IF XACT_STATE() <> 0 ROLLBACK;
+        THROW;
+    END CATCH
+END
+GO
+
+-- Đơn ĐÃ DUYỆT → xuất kho thật cho mọi dòng hàng + phát sinh công nợ (nếu
+-- RequiresCreditCheck=1, VD Đại lý) + đẩy 1 dòng vào hàng đợi đồng bộ kế toán
+-- (Mục 8.2) — tất cả trong 1 giao dịch. @PayloadJson do tầng ứng dụng build
+-- sẵn (JSON hoá đơn dạng chuẩn hoá), truyền vào để ghi cùng lúc, tránh trường
+-- hợp Công nợ đã ghi nhưng hàng đợi kế toán bị thiếu do lỗi rời rạc.
+CREATE OR ALTER PROCEDURE dbo.FulfillSalesOrder
+    @OrderId BIGINT, @PayloadJson NVARCHAR(MAX) = NULL, @CreatedBy NVARCHAR(100) = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DECLARE @Status NVARCHAR(20), @WarehouseId INT, @DealerId INT, @RequiresCredit BIT, @Total DECIMAL(18,2);
+    SELECT @Status=Status, @WarehouseId=WarehouseId, @DealerId=DealerId, @RequiresCredit=RequiresCreditCheck, @Total=TotalAmount
+    FROM dbo.SalesOrders WHERE OrderId=@OrderId;
+
+    IF @Status IS NULL THROW 50035, N'Không tìm thấy đơn hàng', 1;
+    IF @Status <> 'APPROVED' THROW 50036, N'Chỉ xuất kho được đơn hàng ở trạng thái ĐÃ DUYỆT', 1;
+
+    BEGIN TRANSACTION;
+    BEGIN TRY
+        DECLARE @ProductId INT, @Qty DECIMAL(18,2);
+        DECLARE item_cursor CURSOR LOCAL FAST_FORWARD FOR
+            SELECT ProductId, Quantity FROM dbo.SalesOrderItems WHERE OrderId = @OrderId;
+        OPEN item_cursor;
+        FETCH NEXT FROM item_cursor INTO @ProductId, @Qty;
+        WHILE @@FETCH_STATUS = 0
+        BEGIN
+            EXEC dbo.ExportSoldStock @ProductId=@ProductId, @WarehouseId=@WarehouseId, @Qty=@Qty,
+                 @RefType='SalesOrder', @RefId=@OrderId, @CreatedBy=@CreatedBy;
+            FETCH NEXT FROM item_cursor INTO @ProductId, @Qty;
+        END
+        CLOSE item_cursor; DEALLOCATE item_cursor;
+
+        IF @RequiresCredit = 1 AND @DealerId IS NOT NULL
+        BEGIN
+            INSERT INTO dbo.DealerLedger (DealerId, EntryType, Amount, RefType, RefId)
+            VALUES (@DealerId, 'INVOICE', @Total, 'SalesOrder', @OrderId);
+
+            IF @PayloadJson IS NOT NULL
+                INSERT INTO dbo.AccountingSyncQueue (EntryType, PayloadJson) VALUES ('INVOICE', @PayloadJson);
+        END
+
+        UPDATE dbo.SalesOrders SET Status = 'FULFILLED' WHERE OrderId = @OrderId;
+
+        COMMIT;
+    END TRY
+    BEGIN CATCH
+        IF XACT_STATE() <> 0 ROLLBACK;
+        THROW;
+    END CATCH
+END
+GO
+
 -- ============================================================================
 -- SEED DỮ LIỆU MẶC ĐỊNH (chỉ chạy nếu bảng rỗng — an toàn khi chạy lại script)
 -- ============================================================================
 
-IF NOT EXISTS (SELECT 1 FROM dbo.Positions)
-BEGIN
-    INSERT INTO dbo.Positions (PositionCode, PositionName, Department, DisplayOrder) VALUES
+-- Idempotent theo TỪNG dòng (không theo "bảng rỗng hay chưa") — chạy đúng cả
+-- khi DB đã seed 1 phần từ giai đoạn trước, chỉ thêm đúng vị trí còn thiếu.
+INSERT INTO dbo.Positions (PositionCode, PositionName, Department, DisplayOrder)
+SELECT v.PositionCode, v.PositionName, v.Department, v.DisplayOrder
+FROM (VALUES
     (N'ADMIN', N'Quản trị hệ thống', N'IT', 0),
     (N'WAREHOUSE_STAFF', N'Nhân viên kho', N'Kho vận', 1),
     (N'WAREHOUSE_MANAGER', N'Trưởng kho', N'Kho vận', 2),
     (N'SALES_STAFF', N'Nhân viên kinh doanh', N'Kinh doanh', 3),
-    (N'SALES_MANAGER', N'Trưởng phòng kinh doanh', N'Kinh doanh', 4);
-END
+    (N'SALES_MANAGER', N'Trưởng phòng kinh doanh', N'Kinh doanh', 4),
+    (N'SALES_DIRECTOR', N'Giám đốc Kinh doanh', N'Kinh doanh', 5),
+    (N'CFO', N'Giám đốc Tài chính / Kế toán trưởng', N'Tài chính - Kế toán', 6)
+) AS v(PositionCode, PositionName, Department, DisplayOrder)
+WHERE NOT EXISTS (SELECT 1 FROM dbo.Positions p WHERE p.PositionCode = v.PositionCode);
+GO
+
+-- Ma trận phê duyệt mặc định đúng theo Mục 7.2 tài liệu thiết kế. Idempotent
+-- theo (ConditionType, StepOrder) — UQ_ApprovalMatrixRules đã ràng buộc duy nhất.
+INSERT INTO dbo.ApprovalMatrixRules (ConditionType, StepOrder, ApproverMode, ApproverPositionId)
+SELECT v.ConditionType, v.StepOrder, 'POSITION', p.PositionId
+FROM (VALUES
+    (N'STANDARD', 1, N'SALES_MANAGER'),
+    (N'OVER_CREDIT', 1, N'SALES_MANAGER'), (N'OVER_CREDIT', 2, N'CFO'),
+    (N'OVER_DISCOUNT', 1, N'SALES_MANAGER'), (N'OVER_DISCOUNT', 2, N'SALES_DIRECTOR'),
+    (N'BOTH', 1, N'SALES_MANAGER'), (N'BOTH', 2, N'SALES_DIRECTOR'), (N'BOTH', 3, N'CFO')
+) AS v(ConditionType, StepOrder, PositionCode)
+JOIN dbo.Positions p ON p.PositionCode = v.PositionCode
+WHERE NOT EXISTS (
+    SELECT 1 FROM dbo.ApprovalMatrixRules r WHERE r.ConditionType = v.ConditionType AND r.StepOrder = v.StepOrder);
 GO
 
 IF NOT EXISTS (SELECT 1 FROM dbo.Employees)

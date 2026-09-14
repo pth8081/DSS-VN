@@ -209,4 +209,118 @@ router.post('/orders/:id/cancel', requirePerm('salesOrderCreate'), async (req, r
   }
 });
 
+// --- Phê duyệt (Module 7) ---
+
+router.get('/orders/:id/approval', async (req, res) => {
+  const pool = await getPool();
+  const instance = await pool.request().input('orderId', sql.BigInt, req.params.id)
+    .query(`SELECT TOP 1 * FROM dbo.ApprovalInstances WHERE RefType='SalesOrder' AND RefId=@orderId ORDER BY InstanceId DESC`);
+  if (!instance.recordset[0]) return res.json(null);
+
+  const steps = await pool.request().input('instanceId', sql.BigInt, instance.recordset[0].InstanceId).query(`
+    SELECT s.*, pos.PositionName AS ApproverPositionName, e.FullName AS ApproverEmployeeName, u.Username AS DecidedByUsername
+    FROM dbo.ApprovalSteps s
+    LEFT JOIN dbo.Positions pos ON pos.PositionId = s.ApproverPositionId
+    LEFT JOIN dbo.Employees e ON e.EmployeeId = s.ApproverEmployeeId
+    LEFT JOIN dbo.Users u ON u.UserId = s.DecidedByUserId
+    WHERE s.InstanceId = @instanceId ORDER BY s.StepOrder`);
+
+  res.json({ ...instance.recordset[0], steps: steps.recordset });
+});
+
+// Seat-based (nguyên tắc 1): người duyệt xác định theo Vị trí/Phòng ban/Cá
+// nhân được GÁN Ở BƯỚC, tra lại đúng vị trí HIỆN TẠI của nhân viên (Zero Trust
+// — không tin JWT), không gán cứng theo tên. Admin luôn được coi là đủ điều
+// kiện (ghi đè), nhất quán với toàn hệ thống.
+async function canDecideStep(req, step) {
+  if (req.user.isAdmin) return true;
+  if (!req.user.employeeId) return false;
+
+  const pool = await getPool();
+  const emp = await pool.request().input('id', sql.Int, req.user.employeeId)
+    .query('SELECT PositionId, Department FROM dbo.Employees WHERE EmployeeId = @id');
+  const employee = emp.recordset[0];
+  if (!employee) return false;
+
+  if (step.ApproverMode === 'POSITION') return employee.PositionId === step.ApproverPositionId;
+  if (step.ApproverMode === 'DEPARTMENT') return employee.Department === step.ApproverDepartment;
+  if (step.ApproverMode === 'PERSON') return req.user.employeeId === step.ApproverEmployeeId;
+  return false;
+}
+
+router.post('/orders/:id/approval/decide', async (req, res) => {
+  const { stepId, decision, comment } = req.body || {};
+  if (!stepId || !['APPROVED', 'REJECTED'].includes(decision)) {
+    return res.status(400).json({ error: 'Thiếu stepId hoặc quyết định không hợp lệ' });
+  }
+
+  const pool = await getPool();
+  const stepResult = await pool.request().input('id', sql.BigInt, stepId).input('orderId', sql.BigInt, req.params.id).query(`
+    SELECT s.* FROM dbo.ApprovalSteps s
+    JOIN dbo.ApprovalInstances i ON i.InstanceId = s.InstanceId
+    WHERE s.StepId = @id AND i.RefType='SalesOrder' AND i.RefId = @orderId`);
+  const step = stepResult.recordset[0];
+  if (!step) return res.status(404).json({ error: 'Không tìm thấy bước duyệt' });
+
+  const instance = await pool.request().input('id', sql.BigInt, step.InstanceId)
+    .query('SELECT ConditionType FROM dbo.ApprovalInstances WHERE InstanceId = @id');
+  const permNeeded = instance.recordset[0].ConditionType === 'STANDARD' ? 'salesApproveStandard' : 'salesApproveException';
+  if (!req.user.isAdmin && !req.user.perms[permNeeded]) {
+    return res.status(403).json({ error: 'Không có quyền duyệt loại đơn hàng này' });
+  }
+  if (!(await canDecideStep(req, step))) {
+    return res.status(403).json({ error: 'Bạn không giữ đúng vị trí/phòng ban được gán duyệt bước này' });
+  }
+
+  try {
+    await pool.request()
+      .input('OrderId', sql.BigInt, req.params.id)
+      .input('StepId', sql.BigInt, stepId)
+      .input('Decision', sql.NVarChar, decision)
+      .input('DecidedByUserId', sql.Int, req.user.userId)
+      .input('Comment', sql.NVarChar, comment || null)
+      .execute('dbo.DecideSalesOrderApproval');
+    await logAction(req, decision === 'APPROVED' ? 'APPROVE_STEP' : 'REJECT_STEP', 'SalesOrder', req.params.id, { stepId, comment });
+    res.json({ ok: true });
+  } catch (err) {
+    handleProcError(err, res);
+  }
+});
+
+// --- Xuất kho / Hoàn tất đơn (Module 6 + phát sinh công nợ Module 8) ---
+
+router.post('/orders/:id/fulfill', requirePerm('salesOrderCreate'), async (req, res) => {
+  const pool = await getPool();
+  const order = await pool.request().input('id', sql.BigInt, req.params.id).query(`
+    SELECT o.*, d.DealerCode, d.DealerName FROM dbo.SalesOrders o LEFT JOIN dbo.Dealers d ON d.DealerId = o.DealerId
+    WHERE o.OrderId = @id`);
+  if (!order.recordset[0]) return res.status(404).json({ error: 'Không tìm thấy đơn hàng' });
+  const o = order.recordset[0];
+
+  let payloadJson = null;
+  if (o.RequiresCreditCheck && o.DealerId) {
+    const items = await pool.request().input('id', sql.BigInt, req.params.id).query(`
+      SELECT i.Quantity, i.UnitPrice, i.DiscountPct, i.LineTotal, p.SKU, p.ProductName
+      FROM dbo.SalesOrderItems i JOIN dbo.Products p ON p.ProductId = i.ProductId WHERE i.OrderId = @id`);
+    payloadJson = JSON.stringify({
+      invoiceRefType: 'SalesOrder', invoiceRefId: o.OrderId, orderCode: o.OrderCode,
+      dealerCode: o.DealerCode, dealerName: o.DealerName, totalAmount: o.TotalAmount,
+      paymentTermDays: o.PaymentTermDays, issuedAt: new Date().toISOString(),
+      items: items.recordset,
+    });
+  }
+
+  try {
+    await pool.request()
+      .input('OrderId', sql.BigInt, req.params.id)
+      .input('PayloadJson', sql.NVarChar(sql.MAX), payloadJson)
+      .input('CreatedBy', sql.NVarChar, req.user.username)
+      .execute('dbo.FulfillSalesOrder');
+    await logAction(req, 'FULFILL', 'SalesOrder', req.params.id, null);
+    res.json({ ok: true });
+  } catch (err) {
+    handleProcError(err, res);
+  }
+});
+
 module.exports = router;

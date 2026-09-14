@@ -91,6 +91,7 @@
     <button class="tab-btn" data-tab="dealers">Đại lý</button>
     <button class="tab-btn" data-tab="projects">Khách hàng dự án</button>
     <button class="tab-btn" data-tab="sales">Bán hàng</button>
+    <button class="tab-btn" data-tab="finance" data-require-perm="reportViewFinance">Công nợ &amp; Kế toán</button>
     <button class="tab-btn" data-tab="hr">Vị trí &amp; Nhân viên</button>
     <button class="tab-btn" data-tab="users" data-require-perm="employeeManage">Tài khoản &amp; Phân quyền</button>
     <button class="tab-btn" data-tab="config" data-require-perm="employeeManage">Cấu hình hệ thống</button>
@@ -443,12 +444,34 @@
         <div class="form-row" style="margin-top:10px">
           <button class="btn" id="btnSubmitOrder" type="button">Gửi duyệt (giữ hàng)</button>
           <button class="btn danger" id="btnCancelOrder" type="button">Hủy đơn</button>
+          <button class="btn" id="btnFulfillOrder" type="button">Xuất kho (hoàn tất)</button>
+        </div>
+        <div class="hidden" id="approvalBox" style="margin-top:14px">
+          <h3 style="font-size:13px;color:var(--muted);text-transform:uppercase">Luồng phê duyệt (<span id="apConditionType"></span>)</h3>
+          <table><thead><tr><th>Bước</th><th>Người duyệt</th><th>Trạng thái</th><th>Người xử lý</th><th>Ý kiến</th><th></th></tr></thead><tbody id="tblApprovalSteps"></tbody></table>
         </div>
       </div>
 
       <div class="card">
         <h3>Danh sách đơn hàng</h3>
         <table><thead><tr><th>Mã đơn</th><th>Loại</th><th>Khách hàng</th><th>Kho</th><th>Tổng tiền</th><th>Trạng thái</th><th>Hạn giữ hàng</th><th></th></tr></thead><tbody id="tblOrders"></tbody></table>
+      </div>
+    </div>
+
+    <div class="panel" id="panel-finance">
+      <h2>Công nợ &amp; Kế toán</h2>
+      <div class="card">
+        <h3>Công nợ đại lý</h3>
+        <table><thead><tr><th>Mã</th><th>Tên đại lý</th><th>Hạn mức</th><th>Công nợ hiện tại</th><th>Trạng thái</th><th></th></tr></thead><tbody id="tblDealerDebt"></tbody></table>
+      </div>
+      <div class="card hidden" id="ledgerCard">
+        <h3>Sổ cái công nợ: <span id="ledgerDealerName"></span></h3>
+        <table><thead><tr><th>Ngày</th><th>Loại</th><th>Số tiền</th><th>Ghi chú</th></tr></thead><tbody id="tblLedger"></tbody></table>
+      </div>
+      <div class="card">
+        <h3>Hàng đợi đồng bộ kế toán (Adapter — mặc định xuất CSV cho kế toán tự nhập)</h3>
+        <button class="btn" id="btnExportCsv" type="button">Xuất CSV hoá đơn đang chờ</button>
+        <table style="margin-top:10px"><thead><tr><th>ID</th><th>Loại</th><th>Trạng thái</th><th>Tạo lúc</th><th>Gửi lúc</th></tr></thead><tbody id="tblSyncQueue"></tbody></table>
       </div>
     </div>
 
@@ -528,6 +551,9 @@ const PERM_KEYS = [
   { key: 'projectManage', label: 'Quản lý khách hàng dự án' },
   { key: 'salesOrderCreate', label: 'Tạo/gửi duyệt/hủy đơn hàng' },
   { key: 'salesConfigManage', label: 'Quản lý kênh bán hàng' },
+  { key: 'salesApproveStandard', label: 'Duyệt đơn hàng CHUẨN' },
+  { key: 'salesApproveException', label: 'Duyệt đơn hàng NGOẠI LỆ (vượt hạn mức/chiết khấu)' },
+  { key: 'reportViewFinance', label: 'Xem công nợ đại lý & báo cáo tài chính' },
 ];
 
 let CURRENT_USER = null;
@@ -675,7 +701,7 @@ async function enterApp() {
   await Promise.all([loadPricing(), loadHr()]);
   await Promise.all([
     loadInventory(), loadDealers(), loadProjects(), loadSales(),
-    loadUsers().catch(() => {}), loadConfig().catch(() => {}), loadLogs().catch(() => {}),
+    loadUsers().catch(() => {}), loadConfig().catch(() => {}), loadLogs().catch(() => {}), loadFinance().catch(() => {}),
   ]);
   updateDashboardStats();
 }
@@ -1171,6 +1197,40 @@ async function openOrderDetail(id) {
   document.getElementById('formOrderItem').style.display = isDraft ? '' : 'none';
   document.getElementById('btnSubmitOrder').style.display = isDraft ? '' : 'none';
   document.getElementById('btnCancelOrder').style.display = ['DRAFT', 'PENDING_APPROVAL', 'APPROVED'].includes(order.Status) ? '' : 'none';
+  document.getElementById('btnFulfillOrder').style.display = order.Status === 'APPROVED' ? '' : 'none';
+
+  const approvalBox = document.getElementById('approvalBox');
+  if (order.Status === 'DRAFT') {
+    approvalBox.classList.add('hidden');
+  } else {
+    const approval = await api(`/sales/orders/${id}/approval`);
+    if (!approval) {
+      approvalBox.classList.add('hidden');
+    } else {
+      approvalBox.classList.remove('hidden');
+      document.getElementById('apConditionType').textContent = approval.ConditionType;
+      const currentStepOrder = Math.min(...approval.steps.filter((s) => s.Status === 'PENDING').map((s) => s.StepOrder), Infinity);
+      document.getElementById('tblApprovalSteps').innerHTML = approval.steps.map((s) => `
+        <tr><td>${s.StepOrder}</td>
+        <td>${s.ApproverPositionName || s.ApproverDepartment || s.ApproverEmployeeName || ''}</td>
+        <td><span class="badge ${s.Status === 'APPROVED' ? 'ok' : s.Status === 'REJECTED' ? 'off' : ''}">${s.Status}</span></td>
+        <td>${s.DecidedByUsername || ''}</td><td>${s.Comment || ''}</td>
+        <td>${s.Status === 'PENDING' && s.StepOrder === currentStepOrder ? `
+          <button class="btn secondary" data-decide="${s.StepId}" data-decision="APPROVED">Duyệt</button>
+          <button class="btn danger" data-decide="${s.StepId}" data-decision="REJECTED">Từ chối</button>` : ''}</td></tr>`).join('');
+
+      document.querySelectorAll('[data-decide]').forEach((btn) => btn.addEventListener('click', async () => {
+        let comment = null;
+        if (btn.dataset.decision === 'REJECTED') comment = prompt('Lý do từ chối (không bắt buộc):') || null;
+        try {
+          await api(`/sales/orders/${id}/approval/decide`, { method: 'POST', body: { stepId: Number(btn.dataset.decide), decision: btn.dataset.decision, comment } });
+          toast(btn.dataset.decision === 'APPROVED' ? 'Đã duyệt bước này' : 'Đã từ chối đơn hàng');
+          await openOrderDetail(id);
+          await Promise.all([loadSales(), loadInventory()]);
+        } catch (err) { toast(err.message, 'err'); }
+      }));
+    }
+  }
 }
 
 document.getElementById('odProductInput').addEventListener('sdd-select', async (e) => {
@@ -1215,6 +1275,62 @@ document.getElementById('btnCancelOrder').addEventListener('click', async () => 
     toast('Đã hủy đơn hàng, nhả tồn kho đã giữ (nếu có)');
     await openOrderDetail(currentOrderId);
     await Promise.all([loadSales(), loadInventory()]);
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+document.getElementById('btnFulfillOrder').addEventListener('click', async () => {
+  if (!currentOrderId) return;
+  try {
+    await api(`/sales/orders/${currentOrderId}/fulfill`, { method: 'POST' });
+    toast('Đã xuất kho, hoàn tất đơn hàng' + (currentOrderDealerId ? ' — đã ghi nhận công nợ' : ''));
+    await openOrderDetail(currentOrderId);
+    await Promise.all([loadSales(), loadInventory(), loadFinance().catch(() => {})]);
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+// ---------------------------------------------------------------------------
+// Công nợ & Kế toán (Module 8)
+// ---------------------------------------------------------------------------
+async function loadFinance() {
+  const dealers = await api('/dealers');
+  document.getElementById('tblDealerDebt').innerHTML = dealers.map((d) => `
+    <tr><td>${d.DealerCode}</td><td>${d.DealerName}</td>
+    <td>${Number(d.EffectiveCreditLimit).toLocaleString('vi-VN')}</td>
+    <td>${Number(d.CurrentDebt).toLocaleString('vi-VN')}</td>
+    <td><span class="badge ${d.OverCredit ? 'off' : 'ok'}">${d.OverCredit ? 'Vượt hạn mức' : 'Bình thường'}</span></td>
+    <td><button class="btn secondary" data-view-ledger="${d.DealerId}" data-name="${d.DealerName}">Sổ cái</button></td></tr>`).join('');
+  document.querySelectorAll('[data-view-ledger]').forEach((btn) =>
+    btn.addEventListener('click', () => openLedger(btn.dataset.viewLedger, btn.dataset.name)));
+
+  const queue = await api('/finance/sync-queue');
+  document.getElementById('tblSyncQueue').innerHTML = queue.map((q) => `
+    <tr><td>${q.QueueId}</td><td>${q.EntryType}</td>
+    <td><span class="badge ${q.Status === 'SENT' ? 'ok' : q.Status === 'FAILED' ? 'off' : ''}">${q.Status}</span></td>
+    <td>${new Date(q.CreatedAt).toLocaleString('vi-VN')}</td>
+    <td>${q.SentAt ? new Date(q.SentAt).toLocaleString('vi-VN') : ''}</td></tr>`).join('');
+}
+
+async function openLedger(dealerId, name) {
+  const data = await api(`/dealers/${dealerId}/ledger`);
+  document.getElementById('ledgerCard').classList.remove('hidden');
+  document.getElementById('ledgerDealerName').textContent = `${name} — Công nợ hiện tại: ${Number(data.currentDebt).toLocaleString('vi-VN')}`;
+  document.getElementById('tblLedger').innerHTML = data.entries.map((e) => `
+    <tr><td>${e.EntryDate.substring(0, 10)}</td><td>${e.EntryType}</td>
+    <td>${Number(e.Amount).toLocaleString('vi-VN')}</td><td>${e.Note || ''}</td></tr>`).join('');
+}
+
+document.getElementById('btnExportCsv').addEventListener('click', async () => {
+  try {
+    const res = await fetch('/api/finance/sync-queue/export-csv', { method: 'POST', credentials: 'include' });
+    if (!res.ok) { const data = await res.json().catch(() => ({})); throw new Error(data.error || `Lỗi ${res.status}`); }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'hoa-don-ke-toan.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    toast('Đã xuất CSV, các hoá đơn đã đánh dấu SENT');
+    await loadFinance();
   } catch (err) { toast(err.message, 'err'); }
 });
 

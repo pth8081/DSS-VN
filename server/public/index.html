@@ -94,6 +94,7 @@
     <button class="tab-btn" data-tab="finance" data-require-perm="reportViewFinance">Công nợ &amp; Kế toán</button>
     <button class="tab-btn" data-tab="contracts">Hợp đồng &amp; Thanh toán</button>
     <button class="tab-btn" data-tab="crm">CRM / Đội Sale</button>
+    <button class="tab-btn" data-tab="reports" data-require-perm="reportView">Báo cáo tổng hợp</button>
     <button class="tab-btn" data-tab="hr">Vị trí &amp; Nhân viên</button>
     <button class="tab-btn" data-tab="users" data-require-perm="employeeManage">Tài khoản &amp; Phân quyền</button>
     <button class="tab-btn" data-tab="config" data-require-perm="employeeManage">Cấu hình hệ thống</button>
@@ -575,6 +576,79 @@
       </div>
     </div>
 
+    <div class="panel" id="panel-reports">
+      <h2>Báo cáo tổng hợp</h2>
+
+      <div class="card">
+        <h3>1. Doanh thu đại lý theo kỳ + tăng trưởng</h3>
+        <div class="form-row">
+          <div class="field"><label>Kỳ</label>
+            <select id="repDealerRevenuePeriod"><option value="month">Tháng</option><option value="quarter">Quý</option><option value="year">Năm</option></select>
+          </div>
+          <button class="btn secondary" id="btnLoadDealerRevenue" type="button">Xem</button>
+          <button class="btn secondary" data-export-csv="tblDealerRevenue" type="button">Xuất CSV</button>
+        </div>
+        <table><thead><tr><th>Đại lý</th><th>Kỳ</th><th>Doanh thu</th><th>Tăng trưởng so kỳ trước</th></tr></thead><tbody id="tblDealerRevenue"></tbody></table>
+      </div>
+
+      <div class="card">
+        <h3>2. Chân dung khách hàng đại lý</h3>
+        <div class="form-row">
+          <div class="field"><label>Đại lý</label>
+            <input autocomplete="off" id="repDealerInput" data-sdd-list="repDealerDropdown" placeholder="Gõ để tìm...">
+            <div id="repDealerDropdown" class="hidden sdd-dropdown" data-sdd-dropdown></div>
+          </div>
+          <button class="btn secondary" id="btnLoadDealerProfile" type="button">Xem</button>
+        </div>
+        <div id="dealerProfileResult" style="font-size:13px"></div>
+      </div>
+
+      <div class="grid2">
+        <div class="card">
+          <h3>3. Khách hàng dự án: tỷ lệ thắng thầu</h3>
+          <div id="projectProfileResult" style="font-size:13px"></div>
+        </div>
+        <div class="card">
+          <h3>6. Hiệu suất kênh bán</h3>
+          <table><thead><tr><th>Kênh</th><th>Doanh thu</th><th>Tỷ trọng</th></tr></thead><tbody id="tblChannelPerf"></tbody></table>
+        </div>
+      </div>
+
+      <div class="card" data-require-perm="reportViewFinance">
+        <h3>4. Công nợ &amp; tuổi nợ</h3>
+        <table><thead><tr><th>Nhóm tuổi nợ</th><th>Tổng tiền</th></tr></thead><tbody id="tblDebtAgingTotals"></tbody></table>
+        <table style="margin-top:10px"><thead><tr><th>Đại lý</th><th>0-30</th><th>31-60</th><th>61-90</th><th>&gt;90</th><th>Tổng</th></tr></thead><tbody id="tblDebtAging"></tbody></table>
+      </div>
+
+      <div class="card">
+        <h3>5. Tồn kho &amp; vòng quay hàng (30 ngày gần nhất)</h3>
+        <button class="btn secondary" data-export-csv="tblInventoryTurnover" type="button">Xuất CSV</button>
+        <table style="margin-top:10px"><thead><tr><th>SKU</th><th>Sản phẩm</th><th>Kho</th><th>Tồn khả dụng</th><th>Đã bán 30 ngày</th><th>Tỷ lệ quay vòng</th></tr></thead><tbody id="tblInventoryTurnover"></tbody></table>
+      </div>
+
+      <div class="card">
+        <h3>7. Hiệu suất Sale</h3>
+        <table><thead><tr><th>Nhân viên</th><th>Doanh thu</th><th>Cơ hội đang xử lý</th><th>Thắng/Thua</th><th>Tỷ lệ chốt</th></tr></thead><tbody id="tblSalesPerf"></tbody></table>
+      </div>
+
+      <div class="card">
+        <h3>Bộ lọc động</h3>
+        <div class="form-row">
+          <div class="field"><label>Chiều</label>
+            <select id="dynDimension"><option value="dealer">Đại lý</option><option value="product">Nhóm sản phẩm</option><option value="channel">Kênh bán</option><option value="sale">Sale</option></select>
+          </div>
+          <div class="field"><label>Chỉ số</label>
+            <select id="dynMeasure"><option value="REVENUE">Doanh thu</option><option value="COGS">Giá vốn</option><option value="GROSS_MARGIN">Biên lợi nhuận</option><option value="QTY">Số lượng</option><option value="DISCOUNT_AMOUNT">Tiền chiết khấu</option></select>
+          </div>
+          <div class="field"><label>Từ ngày</label><input type="date" id="dynFrom"></div>
+          <div class="field"><label>Đến ngày</label><input type="date" id="dynTo"></div>
+          <button class="btn secondary" id="btnLoadDynamic" type="button">Chạy báo cáo</button>
+          <button class="btn secondary" data-export-csv="tblDynamic" type="button">Xuất CSV</button>
+        </div>
+        <table><thead><tr><th id="dynDimHeader">Chiều</th><th id="dynMeasureHeader">Chỉ số</th></tr></thead><tbody id="tblDynamic"></tbody></table>
+      </div>
+    </div>
+
     <div class="panel" id="panel-hr">
       <h2>Vị trí &amp; Nhân viên</h2>
       <div class="card">
@@ -652,6 +726,7 @@ const PERM_KEYS = [
   { key: 'salesOrderCreate', label: 'Tạo/gửi duyệt/hủy đơn hàng' },
   { key: 'salesConfigManage', label: 'Quản lý kênh bán hàng' },
   { key: 'contractManage', label: 'Quản lý hợp đồng & duyệt chi phụ lục thanh toán' },
+  { key: 'reportView', label: 'Xem báo cáo doanh số/kho/kênh/sale' },
   { key: 'salesApproveStandard', label: 'Duyệt đơn hàng CHUẨN' },
   { key: 'salesApproveException', label: 'Duyệt đơn hàng NGOẠI LỆ (vượt hạn mức/chiết khấu)' },
   { key: 'reportViewFinance', label: 'Xem công nợ đại lý & báo cáo tài chính' },
@@ -805,6 +880,7 @@ async function enterApp() {
     loadUsers().catch(() => {}), loadConfig().catch(() => {}), loadLogs().catch(() => {}), loadFinance().catch(() => {}),
   ]);
   await Promise.all([loadContracts(), loadCrm()]);
+  await loadReportsOverview().catch(() => {});
   updateDashboardStats();
 }
 
@@ -1621,6 +1697,101 @@ async function loadLogs() {
     <tr><td>${new Date(l.CreatedAt).toLocaleString('vi-VN')}</td><td>${l.Username || ''}</td><td>${l.Action}</td>
     <td>${l.EntityType || ''} ${l.EntityId || ''}</td><td style="max-width:300px;white-space:normal">${l.DetailJson || ''}</td></tr>`).join('');
 }
+
+// ---------------------------------------------------------------------------
+// Báo cáo tổng hợp (Module 11)
+// ---------------------------------------------------------------------------
+
+// Xuất CSV từ chính bảng đang hiển thị trên màn hình — dùng chung cho mọi báo
+// cáo (theo form mẫu lẫn bộ lọc động, Mục 11.2). Mở đầu ô bằng dấu nháy đơn
+// nếu bắt đầu bằng =/+/-/@ để chống Formula Injection khi mở bằng Excel.
+function sanitizeCsvCell(value) {
+  let s = value == null ? '' : String(value);
+  if (/^[=+\-@]/.test(s)) s = `'${s}`;
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+function exportTableToCsv(tbodyId) {
+  const tbody = document.getElementById(tbodyId);
+  const table = tbody.closest('table');
+  const headers = [...table.querySelectorAll('thead th')].map((th) => th.textContent.trim());
+  const rows = [...tbody.querySelectorAll('tr')].map((tr) => [...tr.children].map((td) => td.textContent.trim()));
+  const csv = [headers, ...rows].map((r) => r.map(sanitizeCsvCell).join(',')).join('\r\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `${tbodyId}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+document.querySelectorAll('[data-export-csv]').forEach((btn) =>
+  btn.addEventListener('click', () => exportTableToCsv(btn.dataset.exportCsv)));
+
+async function loadReportsOverview() {
+  sddSetOptions('repDealerDropdown', (CACHE.dealers || []).map((d) => ({ id: d.DealerId, label: d.DealerName, sub: d.DealerCode })));
+
+  const projectProfile = await api('/reports/project-profile');
+  document.getElementById('projectProfileResult').innerHTML = `
+    Tổng dự án đã đóng: <b>${projectProfile.TotalClosed}</b> (Thắng: ${projectProfile.WonCount}, Thua: ${projectProfile.LostCount})<br>
+    Tỷ lệ thắng thầu: <b>${projectProfile.WinRatePct != null ? projectProfile.WinRatePct + '%' : 'Chưa có dữ liệu'}</b><br>
+    Giá trị TB/dự án thắng: <b>${projectProfile.AvgWonValue != null ? Number(projectProfile.AvgWonValue).toLocaleString('vi-VN') : '-'}</b><br>
+    Thời gian chốt deal TB: <b>${projectProfile.AvgDaysToClose != null ? Math.round(projectProfile.AvgDaysToClose) + ' ngày' : '-'}</b>`;
+
+  const channelPerf = await api('/reports/channel-performance');
+  document.getElementById('tblChannelPerf').innerHTML = channelPerf.map((c) => `
+    <tr><td>${c.ChannelName}</td><td>${Number(c.Revenue).toLocaleString('vi-VN')}</td><td>${c.SharePct}%</td></tr>`).join('');
+
+  const salesPerf = await api('/reports/sales-performance');
+  document.getElementById('tblSalesPerf').innerHTML = salesPerf.map((s) => `
+    <tr><td>${s.FullName}</td><td>${Number(s.Revenue).toLocaleString('vi-VN')}</td><td>${s.OpenOpportunities}</td>
+    <td>${s.WonCount}/${s.LostCount}</td><td>${s.WinRatePct != null ? s.WinRatePct + '%' : '-'}</td></tr>`).join('');
+
+  try {
+    const aging = await api('/reports/debt-aging');
+    document.getElementById('tblDebtAgingTotals').innerHTML = Object.entries(aging.totals).map(([k, v]) => `
+      <tr><td>${k} ngày</td><td>${Number(v).toLocaleString('vi-VN')}</td></tr>`).join('');
+    document.getElementById('tblDebtAging').innerHTML = aging.dealers.map((d) => `
+      <tr><td>${d.DealerName}</td><td>${Number(d['0-30']).toLocaleString('vi-VN')}</td><td>${Number(d['31-60']).toLocaleString('vi-VN')}</td>
+      <td>${Number(d['61-90']).toLocaleString('vi-VN')}</td><td>${Number(d['>90']).toLocaleString('vi-VN')}</td>
+      <td><b>${Number(d.TotalOutstanding).toLocaleString('vi-VN')}</b></td></tr>`).join('');
+  } catch { /* không có quyền reportViewFinance — bỏ qua khối công nợ */ }
+
+  const turnover = await api('/reports/inventory-turnover?days=30');
+  document.getElementById('tblInventoryTurnover').innerHTML = turnover.map((t) => `
+    <tr><td>${t.SKU}</td><td>${t.ProductName}</td><td>${t.WarehouseName}</td><td>${t.AvailableQty}</td>
+    <td>${t.QtySoldRecent}</td><td>${t.TurnoverRatio != null ? t.TurnoverRatio : 'Chưa bán'}</td></tr>`).join('');
+}
+
+document.getElementById('btnLoadDealerRevenue').addEventListener('click', async () => {
+  const period = document.getElementById('repDealerRevenuePeriod').value;
+  const rows = await api(`/reports/dealer-revenue?period=${period}`);
+  document.getElementById('tblDealerRevenue').innerHTML = rows.map((r) => `
+    <tr><td>${r.DealerName}</td><td>${r.PeriodKey}</td><td>${Number(r.Revenue).toLocaleString('vi-VN')}</td>
+    <td>${r.GrowthPct != null ? (r.GrowthPct >= 0 ? '+' : '') + r.GrowthPct + '%' : '-'}</td></tr>`).join('');
+});
+
+document.getElementById('btnLoadDealerProfile').addEventListener('click', async () => {
+  const dealerId = sddValue('repDealerInput');
+  if (!dealerId) return toast('Chọn đại lý trước', 'err');
+  const p = await api(`/reports/dealer-profile/${dealerId}`);
+  document.getElementById('dealerProfileResult').innerHTML = `
+    Số đơn đã hoàn tất: <b>${p.orderCount}</b> — Giá trị đơn TB: <b>${Number(p.avgOrderValue).toLocaleString('vi-VN')}</b><br>
+    % hạn mức đã dùng: <b>${p.creditUsedPct != null ? p.creditUsedPct + '%' : 'Không giới hạn'}</b>
+    (${Number(p.currentDebt).toLocaleString('vi-VN')} / ${Number(p.effectiveCreditLimit).toLocaleString('vi-VN')})<br>
+    Cơ cấu sản phẩm: ${p.productMix.map((m) => `${m.CategoryName || 'Khác'}: ${Number(m.Revenue).toLocaleString('vi-VN')}`).join(' · ') || 'Chưa có dữ liệu'}`;
+});
+
+document.getElementById('btnLoadDynamic').addEventListener('click', async () => {
+  const dimension = document.getElementById('dynDimension').value;
+  const measure = document.getElementById('dynMeasure').value;
+  const from = document.getElementById('dynFrom').value;
+  const to = document.getElementById('dynTo').value;
+  const params = new URLSearchParams({ dimension, measure, ...(from && { from }), ...(to && { to }) });
+  const data = await api(`/reports/dynamic?${params}`);
+  document.getElementById('dynDimHeader').textContent = document.getElementById('dynDimension').selectedOptions[0].textContent;
+  document.getElementById('dynMeasureHeader').textContent = document.getElementById('dynMeasure').selectedOptions[0].textContent;
+  document.getElementById('tblDynamic').innerHTML = data.rows.map((r) => `
+    <tr><td>${r.DimLabel || '(Chưa xác định)'}</td><td>${Number(r.Total).toLocaleString('vi-VN')}</td></tr>`).join('');
+});
 
 function updateDashboardStats() {
   document.getElementById('statProducts').textContent = CACHE.products.length;

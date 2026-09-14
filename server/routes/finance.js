@@ -17,7 +17,8 @@ router.get('/sync-queue', async (req, res) => {
 });
 
 function csvEscape(value) {
-  const s = value == null ? '' : String(value);
+  let s = value == null ? '' : String(value);
+  if (/^[=+\-@]/.test(s)) s = `'${s}`;   // chống Formula Injection khi mở bằng Excel
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 

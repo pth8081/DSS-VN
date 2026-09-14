@@ -111,10 +111,12 @@
       <div class="grid2">
         <div class="card"><h3>Sản phẩm</h3><div id="statProducts" style="font-size:26px;font-weight:700">-</div></div>
         <div class="card"><h3>Kho</h3><div id="statWarehouses" style="font-size:26px;font-weight:700">-</div></div>
+        <div class="card"><h3>Đại lý</h3><div id="statDealers" style="font-size:26px;font-weight:700">-</div></div>
+        <div class="card"><h3>Đơn hàng</h3><div id="statOrders" style="font-size:26px;font-weight:700">-</div></div>
         <div class="card"><h3>Nhân viên</h3><div id="statEmployees" style="font-size:26px;font-weight:700">-</div></div>
         <div class="card"><h3>Giao dịch kho gần đây</h3><div id="statTrans" style="font-size:26px;font-weight:700">-</div></div>
       </div>
-      <p style="color:var(--muted);font-size:13px">Giai đoạn 1: Danh mục nền tảng + Kho hàng + Hệ thống cơ bản. Các module Đại lý, Dự án, Bán hàng, Phê duyệt, Công nợ, Báo cáo sẽ triển khai ở các giai đoạn tiếp theo.</p>
+      <p style="color:var(--muted);font-size:13px">Đã triển khai đủ 5/5 giai đoạn: Danh mục &amp; Kho hàng, Đại lý/Dự án/Bán hàng đa kênh, Ma trận phê duyệt &amp; Công nợ, Hợp đồng &amp; CRM, Báo cáo tổng hợp.</p>
     </div>
 
     <div class="panel" id="panel-catalog">
@@ -1289,6 +1291,7 @@ const ORDER_STATUS_LABEL = {
 async function loadSales() {
   const [channels, orders] = await Promise.all([api('/sales/channels'), api('/sales/orders')]);
   CACHE.channels = channels;
+  CACHE.orders = orders;
   sddSetOptions('ordChannelDropdown', channels.map((c) => ({ id: c.ChannelId, label: c.ChannelName })));
   sddSetOptions('ordWarehouseDropdown', CACHE.warehouses.map((w) => ({ id: w.WarehouseId, label: w.WarehouseName, sub: w.WarehouseCode })));
   sddSetOptions('odProductDropdown', CACHE.products.map((p) => ({ id: p.ProductId, label: p.ProductName, sub: p.SKU })));
@@ -1796,6 +1799,8 @@ document.getElementById('btnLoadDynamic').addEventListener('click', async () => 
 function updateDashboardStats() {
   document.getElementById('statProducts').textContent = CACHE.products.length;
   document.getElementById('statWarehouses').textContent = CACHE.warehouses.length;
+  document.getElementById('statDealers').textContent = (CACHE.dealers || []).length;
+  document.getElementById('statOrders').textContent = (CACHE.orders || []).length;
 }
 
 // ---------------------------------------------------------------------------

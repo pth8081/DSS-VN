@@ -1,0 +1,866 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DSS-VN — Nền tảng Phân phối CNTT</title>
+<style>
+  :root { --primary:#1d4ed8; --bg:#f3f4f6; --border:#d1d5db; --text:#111827; --muted:#6b7280; --danger:#dc2626; --ok:#16a34a; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; background:var(--bg); color:var(--text); }
+  .hidden { display:none !important; }
+  /* ---- Login ---- */
+  #loginView { min-height:100vh; display:flex; align-items:center; justify-content:center; }
+  #loginBox { background:#fff; border:1px solid var(--border); border-radius:10px; padding:32px; width:320px; box-shadow:0 2px 10px rgba(0,0,0,.06); }
+  #loginBox h1 { font-size:18px; margin:0 0 4px; }
+  #loginBox p.sub { color:var(--muted); font-size:13px; margin:0 0 20px; }
+  #loginBox input { width:100%; padding:9px 10px; margin-bottom:12px; border:1px solid var(--border); border-radius:6px; font-size:14px; }
+  #loginBox button { width:100%; padding:10px; background:var(--primary); color:#fff; border:none; border-radius:6px; font-size:14px; cursor:pointer; }
+  #loginBox button:hover { background:#1a3fb8; }
+  #loginError { color:var(--danger); font-size:13px; margin-bottom:10px; min-height:16px; }
+  /* ---- App shell ---- */
+  #appView { display:flex; min-height:100vh; }
+  #sidebar { width:220px; background:#111827; color:#e5e7eb; flex-shrink:0; padding:16px 0; }
+  #sidebar .brand { font-weight:700; padding:0 16px 16px; font-size:15px; border-bottom:1px solid #374151; margin-bottom:8px; }
+  #sidebar .tab-btn { display:block; width:100%; text-align:left; padding:10px 16px; background:none; border:none; color:#cbd5e1; font-size:13.5px; cursor:pointer; }
+  #sidebar .tab-btn:hover { background:#1f2937; }
+  #sidebar .tab-btn.active { background:var(--primary); color:#fff; }
+  #main { flex:1; padding:20px 28px; max-width:100%; overflow-x:auto; }
+  #topbar { display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; }
+  #topbar .who { font-size:13px; color:var(--muted); }
+  #topbar button { padding:6px 12px; border:1px solid var(--border); background:#fff; border-radius:6px; cursor:pointer; font-size:13px; }
+  .panel { display:none; }
+  .panel.active { display:block; }
+  .panel h2 { font-size:17px; margin:0 0 14px; }
+  .card { background:#fff; border:1px solid var(--border); border-radius:8px; padding:16px; margin-bottom:18px; }
+  .card h3 { font-size:14px; margin:0 0 12px; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:7px 8px; border-bottom:1px solid #eee; white-space:nowrap; }
+  th { color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; }
+  .form-row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; margin-bottom:10px; }
+  .field { display:flex; flex-direction:column; gap:4px; position:relative; }
+  .field label { font-size:12px; color:var(--muted); }
+  .field input, .field select { padding:7px 9px; border:1px solid var(--border); border-radius:6px; font-size:13px; min-width:160px; }
+  .field input[type=checkbox] { min-width:auto; }
+  button.btn { padding:8px 14px; background:var(--primary); color:#fff; border:none; border-radius:6px; font-size:13px; cursor:pointer; height:34px; }
+  button.btn:hover { background:#1a3fb8; }
+  button.btn.secondary { background:#fff; color:var(--text); border:1px solid var(--border); }
+  button.btn.danger { background:var(--danger); }
+  .badge { display:inline-block; padding:2px 8px; border-radius:20px; font-size:11px; }
+  .badge.ok { background:#dcfce7; color:var(--ok); }
+  .badge.off { background:#fee2e2; color:var(--danger); }
+  #toast { position:fixed; top:16px; right:16px; z-index:999; }
+  #toast .msg { padding:10px 16px; border-radius:6px; margin-bottom:8px; font-size:13px; color:#fff; box-shadow:0 2px 8px rgba(0,0,0,.15); }
+  #toast .msg.ok { background:var(--ok); }
+  #toast .msg.err { background:var(--danger); }
+  /* ---- Ô tìm-kiếm-gõ-chọn tự dựng (KHÔNG dùng <input list>+<datalist> native — xem CLAUDE.md) ---- */
+  .sdd-dropdown { position:absolute; top:100%; left:0; z-index:50; background:#fff; border:1px solid var(--border);
+    border-radius:6px; max-height:220px; overflow-y:auto; min-width:220px; box-shadow:0 4px 14px rgba(0,0,0,.12); margin-top:2px; }
+  .sdd-option { padding:7px 10px; font-size:13px; cursor:pointer; }
+  .sdd-option .sub { color:var(--muted); font-size:11px; }
+  .sdd-option:hover, .sdd-option.highlight { background:#eff6ff; }
+  .sdd-empty { padding:8px 10px; font-size:12px; color:var(--muted); }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width: 800px) { #appView { flex-direction:column; } #sidebar { width:100%; } .grid2 { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+
+<div id="toast"></div>
+
+<div id="loginView">
+  <div id="loginBox">
+    <h1>DSS-VN</h1>
+    <p class="sub">Nền tảng Quản trị Vận hành — Phân phối CNTT</p>
+    <div id="loginError"></div>
+    <form id="loginForm">
+      <input type="text" id="loginUsername" placeholder="Tên đăng nhập" autocomplete="username" required>
+      <input type="password" id="loginPassword" placeholder="Mật khẩu" autocomplete="current-password" required>
+      <button type="submit">Đăng nhập</button>
+    </form>
+  </div>
+</div>
+
+<div id="appView" class="hidden">
+  <div id="sidebar">
+    <div class="brand">DSS-VN</div>
+    <button class="tab-btn active" data-tab="dashboard">Tổng quan</button>
+    <button class="tab-btn" data-tab="catalog">Danh mục sản phẩm</button>
+    <button class="tab-btn" data-tab="inventory">Kho hàng</button>
+    <button class="tab-btn" data-tab="pricing">Bảng giá &amp; Hạng đại lý</button>
+    <button class="tab-btn" data-tab="hr">Vị trí &amp; Nhân viên</button>
+    <button class="tab-btn" data-tab="users" data-require-perm="employeeManage">Tài khoản &amp; Phân quyền</button>
+    <button class="tab-btn" data-tab="config" data-require-perm="employeeManage">Cấu hình hệ thống</button>
+    <button class="tab-btn" data-tab="logs" data-require-perm="systemLogView">Nhật ký hệ thống</button>
+  </div>
+  <div id="main">
+    <div id="topbar">
+      <div class="who">Xin chào, <b id="whoName"></b> <span id="whoVersion" style="color:#9ca3af"></span></div>
+      <button id="logoutBtn">Đăng xuất</button>
+    </div>
+
+    <div class="panel active" id="panel-dashboard">
+      <h2>Tổng quan</h2>
+      <div class="grid2">
+        <div class="card"><h3>Sản phẩm</h3><div id="statProducts" style="font-size:26px;font-weight:700">-</div></div>
+        <div class="card"><h3>Kho</h3><div id="statWarehouses" style="font-size:26px;font-weight:700">-</div></div>
+        <div class="card"><h3>Nhân viên</h3><div id="statEmployees" style="font-size:26px;font-weight:700">-</div></div>
+        <div class="card"><h3>Giao dịch kho gần đây</h3><div id="statTrans" style="font-size:26px;font-weight:700">-</div></div>
+      </div>
+      <p style="color:var(--muted);font-size:13px">Giai đoạn 1: Danh mục nền tảng + Kho hàng + Hệ thống cơ bản. Các module Đại lý, Dự án, Bán hàng, Phê duyệt, Công nợ, Báo cáo sẽ triển khai ở các giai đoạn tiếp theo.</p>
+    </div>
+
+    <div class="panel" id="panel-catalog">
+      <h2>Danh mục sản phẩm</h2>
+      <div class="card">
+        <h3>Thêm nhóm sản phẩm</h3>
+        <form class="form-row" id="formCategory">
+          <div class="field"><label>Tên nhóm</label><input required id="catName"></div>
+          <div class="field"><label>Bật serial mặc định</label><input type="checkbox" id="catSerial"></div>
+          <button class="btn" type="submit">Thêm</button>
+        </form>
+        <table><thead><tr><th>Tên nhóm</th><th>Serial mặc định</th><th>Trạng thái</th></tr></thead><tbody id="tblCategories"></tbody></table>
+      </div>
+      <div class="card">
+        <h3>Thêm sản phẩm</h3>
+        <form class="form-row" id="formProduct">
+          <div class="field"><label>SKU</label><input required id="prodSku"></div>
+          <div class="field"><label>Tên sản phẩm</label><input required id="prodName" style="min-width:220px"></div>
+          <div class="field"><label>Hãng</label><input id="prodBrand"></div>
+          <div class="field">
+            <label>Nhóm sản phẩm</label>
+            <input autocomplete="off" id="prodCategoryInput" data-sdd-list="prodCategoryDropdown" placeholder="Gõ để tìm...">
+            <div id="prodCategoryDropdown" class="hidden sdd-dropdown" data-sdd-dropdown></div>
+          </div>
+          <div class="field"><label>ĐVT</label><input id="prodUom" value="Cái" style="min-width:70px"></div>
+          <button class="btn" type="submit">Thêm</button>
+        </form>
+        <table><thead><tr><th>SKU</th><th>Tên sản phẩm</th><th>Hãng</th><th>Nhóm</th><th>ĐVT</th><th>Serial</th></tr></thead><tbody id="tblProducts"></tbody></table>
+      </div>
+    </div>
+
+    <div class="panel" id="panel-inventory">
+      <h2>Kho hàng</h2>
+      <div class="card">
+        <h3>Thêm kho</h3>
+        <form class="form-row" id="formWarehouse">
+          <div class="field"><label>Mã kho</label><input required id="whCode"></div>
+          <div class="field"><label>Tên kho</label><input required id="whName"></div>
+          <div class="field"><label>Địa chỉ</label><input id="whAddress" style="min-width:220px"></div>
+          <button class="btn" type="submit">Thêm</button>
+        </form>
+        <table><thead><tr><th>Mã kho</th><th>Tên kho</th><th>Địa chỉ</th></tr></thead><tbody id="tblWarehouses"></tbody></table>
+      </div>
+
+      <div class="card">
+        <h3>Tồn kho</h3>
+        <table><thead><tr><th>SKU</th><th>Sản phẩm</th><th>Kho</th><th>Tồn thực tế</th><th>Đã giữ</th><th>Khả dụng</th><th>Giá vốn TB</th></tr></thead><tbody id="tblBalances"></tbody></table>
+      </div>
+
+      <div class="grid2">
+        <div class="card">
+          <h3>Nhập kho</h3>
+          <form id="formImport">
+            <div class="form-row">
+              <div class="field"><label>Sản phẩm</label>
+                <input autocomplete="off" id="impProductInput" data-sdd-list="impProductDropdown" placeholder="Gõ SKU/tên...">
+                <div id="impProductDropdown" class="hidden sdd-dropdown" data-sdd-dropdown></div>
+              </div>
+              <div class="field"><label>Kho</label>
+                <input autocomplete="off" id="impWarehouseInput" data-sdd-list="impWarehouseDropdown" placeholder="Gõ tên kho...">
+                <div id="impWarehouseDropdown" class="hidden sdd-dropdown" data-sdd-dropdown></div>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="field"><label>Số lượng</label><input type="number" step="0.01" required id="impQty" style="min-width:100px"></div>
+              <div class="field"><label>Đơn giá</label><input type="number" step="0.01" required id="impCost" style="min-width:120px"></div>
+              <div class="field"><label>Ghi chú</label><input id="impNote" style="min-width:160px"></div>
+              <button class="btn" type="submit">Nhập kho</button>
+            </div>
+          </form>
+        </div>
+
+        <div class="card">
+          <h3>Chuyển kho</h3>
+          <form id="formTransfer">
+            <div class="form-row">
+              <div class="field"><label>Sản phẩm</label>
+                <input autocomplete="off" id="trfProductInput" data-sdd-list="trfProductDropdown" placeholder="Gõ SKU/tên...">
+                <div id="trfProductDropdown" class="hidden sdd-dropdown" data-sdd-dropdown></div>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="field"><label>Từ kho</label>
+                <input autocomplete="off" id="trfFromInput" data-sdd-list="trfFromDropdown" placeholder="Gõ tên kho...">
+                <div id="trfFromDropdown" class="hidden sdd-dropdown" data-sdd-dropdown></div>
+              </div>
+              <div class="field"><label>Đến kho</label>
+                <input autocomplete="off" id="trfToInput" data-sdd-list="trfToDropdown" placeholder="Gõ tên kho...">
+                <div id="trfToDropdown" class="hidden sdd-dropdown" data-sdd-dropdown></div>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="field"><label>Số lượng</label><input type="number" step="0.01" required id="trfQty" style="min-width:100px"></div>
+              <div class="field"><label>Ghi chú</label><input id="trfNote" style="min-width:160px"></div>
+              <button class="btn" type="submit">Chuyển kho</button>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Điều chỉnh tồn kho (kiểm kê)</h3>
+        <form class="form-row" id="formAdjust">
+          <div class="field"><label>Sản phẩm</label>
+            <input autocomplete="off" id="adjProductInput" data-sdd-list="adjProductDropdown" placeholder="Gõ SKU/tên...">
+            <div id="adjProductDropdown" class="hidden sdd-dropdown" data-sdd-dropdown></div>
+          </div>
+          <div class="field"><label>Kho</label>
+            <input autocomplete="off" id="adjWarehouseInput" data-sdd-list="adjWarehouseDropdown" placeholder="Gõ tên kho...">
+            <div id="adjWarehouseDropdown" class="hidden sdd-dropdown" data-sdd-dropdown></div>
+          </div>
+          <div class="field"><label>Tồn thực tế mới</label><input type="number" step="0.01" required id="adjQty" style="min-width:120px"></div>
+          <div class="field"><label>Lý do</label><input id="adjNote" style="min-width:180px"></div>
+          <button class="btn" type="submit">Điều chỉnh</button>
+        </form>
+      </div>
+
+      <div class="card">
+        <h3>Lịch sử giao dịch kho (300 gần nhất)</h3>
+        <table><thead><tr><th>Thời gian</th><th>Sản phẩm</th><th>Kho</th><th>Loại</th><th>Số lượng</th><th>Đơn giá</th><th>Ghi chú</th><th>Người thực hiện</th></tr></thead><tbody id="tblTransactions"></tbody></table>
+      </div>
+    </div>
+
+    <div class="panel" id="panel-pricing">
+      <h2>Bảng giá &amp; Hạng đại lý</h2>
+      <div class="grid2">
+        <div class="card">
+          <h3>Hạng đại lý</h3>
+          <form class="form-row" id="formTier">
+            <div class="field"><label>Tên hạng</label><input required id="tierName" style="min-width:120px"></div>
+            <div class="field"><label>% CK tự quyết tối đa</label><input type="number" step="0.1" id="tierDiscount" value="0" style="min-width:80px"></div>
+            <div class="field"><label>Hạn mức mặc định</label><input type="number" step="1000" id="tierCredit" value="0" style="min-width:130px"></div>
+            <div class="field"><label>Số ngày công nợ</label><input type="number" id="tierTerm" value="0" style="min-width:80px"></div>
+            <button class="btn" type="submit">Thêm</button>
+          </form>
+          <table><thead><tr><th>Hạng</th><th>%CK tối đa</th><th>Hạn mức</th><th>Số ngày</th></tr></thead><tbody id="tblTiers"></tbody></table>
+        </div>
+        <div class="card">
+          <h3>Khu vực</h3>
+          <form class="form-row" id="formRegion">
+            <div class="field"><label>Mã khu vực</label><input required id="regionCode" style="min-width:90px"></div>
+            <div class="field"><label>Tên khu vực</label><input required id="regionName" style="min-width:160px"></div>
+            <button class="btn" type="submit">Thêm</button>
+          </form>
+          <table><thead><tr><th>Mã</th><th>Tên khu vực</th></tr></thead><tbody id="tblRegions"></tbody></table>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Bảng giá</h3>
+        <form class="form-row" id="formPriceList">
+          <div class="field"><label>Tên bảng giá</label><input required id="plName" style="min-width:200px"></div>
+          <div class="field"><label>Hạng đại lý áp dụng</label>
+            <input autocomplete="off" id="plTierInput" data-sdd-list="plTierDropdown" placeholder="Gõ để tìm...">
+            <div id="plTierDropdown" class="hidden sdd-dropdown" data-sdd-dropdown></div>
+          </div>
+          <div class="field"><label>Hiệu lực từ</label><input type="date" required id="plFrom"></div>
+          <div class="field"><label>Hiệu lực đến</label><input type="date" id="plTo"></div>
+          <button class="btn" type="submit">Tạo bảng giá</button>
+        </form>
+        <table><thead><tr><th>Tên bảng giá</th><th>Hạng</th><th>Hiệu lực</th><th>Trạng thái</th><th></th></tr></thead><tbody id="tblPriceLists"></tbody></table>
+      </div>
+
+      <div class="card hidden" id="priceItemsCard">
+        <h3>Giá sản phẩm trong bảng: <span id="priceItemsListName"></span></h3>
+        <form class="form-row" id="formPriceItem">
+          <div class="field"><label>Sản phẩm</label>
+            <input autocomplete="off" id="piProductInput" data-sdd-list="piProductDropdown" placeholder="Gõ SKU/tên...">
+            <div id="piProductDropdown" class="hidden sdd-dropdown" data-sdd-dropdown></div>
+          </div>
+          <div class="field"><label>Giá niêm yết</label><input type="number" step="0.01" required id="piPrice" style="min-width:120px"></div>
+          <div class="field"><label>% CK tối đa</label><input type="number" step="0.1" id="piDiscount" value="0" style="min-width:80px"></div>
+          <button class="btn" type="submit">Thêm giá</button>
+        </form>
+        <table><thead><tr><th>SKU</th><th>Sản phẩm</th><th>Giá niêm yết</th><th>%CK tối đa</th></tr></thead><tbody id="tblPriceItems"></tbody></table>
+      </div>
+    </div>
+
+    <div class="panel" id="panel-hr">
+      <h2>Vị trí &amp; Nhân viên</h2>
+      <div class="card">
+        <h3>Thêm vị trí (Seat-based — người duyệt sẽ gán theo vị trí, không theo tên người)</h3>
+        <form class="form-row" id="formPosition">
+          <div class="field"><label>Mã vị trí</label><input required id="posCode" style="min-width:120px"></div>
+          <div class="field"><label>Tên vị trí</label><input required id="posName" style="min-width:180px"></div>
+          <div class="field"><label>Phòng ban</label><input id="posDept" style="min-width:140px"></div>
+          <button class="btn" type="submit">Thêm</button>
+        </form>
+        <table><thead><tr><th>Mã</th><th>Tên vị trí</th><th>Phòng ban</th></tr></thead><tbody id="tblPositions"></tbody></table>
+      </div>
+      <div class="card">
+        <h3>Thêm nhân viên</h3>
+        <form class="form-row" id="formEmployee">
+          <div class="field"><label>Mã NV</label><input required id="empCode" style="min-width:90px"></div>
+          <div class="field"><label>Họ tên</label><input required id="empName" style="min-width:180px"></div>
+          <div class="field"><label>Email</label><input id="empEmail" style="min-width:180px"></div>
+          <div class="field"><label>Vị trí</label>
+            <input autocomplete="off" id="empPositionInput" data-sdd-list="empPositionDropdown" placeholder="Gõ để tìm...">
+            <div id="empPositionDropdown" class="hidden sdd-dropdown" data-sdd-dropdown></div>
+          </div>
+          <button class="btn" type="submit">Thêm</button>
+        </form>
+        <table><thead><tr><th>Mã NV</th><th>Họ tên</th><th>Vị trí</th><th>Phòng ban</th><th>Trạng thái</th></tr></thead><tbody id="tblEmployees"></tbody></table>
+      </div>
+    </div>
+
+    <div class="panel" id="panel-users">
+      <h2>Tài khoản &amp; Phân quyền</h2>
+      <div class="card">
+        <h3>Tạo tài khoản</h3>
+        <form id="formUser">
+          <div class="form-row">
+            <div class="field"><label>Tên đăng nhập</label><input required id="userUsername"></div>
+            <div class="field"><label>Mật khẩu</label><input type="password" required id="userPassword" minlength="6"></div>
+            <div class="field"><label>Nhân viên liên kết</label>
+              <input autocomplete="off" id="userEmployeeInput" data-sdd-list="userEmployeeDropdown" placeholder="Gõ để tìm...">
+              <div id="userEmployeeDropdown" class="hidden sdd-dropdown" data-sdd-dropdown></div>
+            </div>
+            <div class="field"><label>Là quản trị (toàn quyền)</label><input type="checkbox" id="userIsAdmin"></div>
+          </div>
+          <div class="form-row" id="permsCheckboxes"></div>
+          <button class="btn" type="submit">Tạo tài khoản</button>
+        </form>
+        <table><thead><tr><th>Tên đăng nhập</th><th>Nhân viên</th><th>Quyền</th><th>Trạng thái</th><th>Đăng nhập gần nhất</th></tr></thead><tbody id="tblUsers"></tbody></table>
+      </div>
+    </div>
+
+    <div class="panel" id="panel-config">
+      <h2>Cấu hình hệ thống</h2>
+      <div class="card">
+        <table><thead><tr><th>Khóa cấu hình</th><th>Giá trị</th><th></th></tr></thead><tbody id="tblConfig"></tbody></table>
+      </div>
+    </div>
+
+    <div class="panel" id="panel-logs">
+      <h2>Nhật ký hệ thống</h2>
+      <div class="card">
+        <table><thead><tr><th>Thời gian</th><th>Người dùng</th><th>Hành động</th><th>Đối tượng</th><th>Chi tiết</th></tr></thead><tbody id="tblLogs"></tbody></table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const PERM_KEYS = [
+  { key: 'catalogManage', label: 'Quản lý danh mục sản phẩm/bảng giá' },
+  { key: 'warehouseManage', label: 'Quản lý kho hàng' },
+  { key: 'employeeManage', label: 'Quản lý vị trí/nhân viên/tài khoản' },
+  { key: 'systemLogView', label: 'Xem nhật ký hệ thống' },
+];
+
+let CURRENT_USER = null;
+let CACHE = { categories: [], products: [], warehouses: [], tiers: [], regions: [], positions: [], employees: [] };
+
+// ---------------------------------------------------------------------------
+// API helper
+// ---------------------------------------------------------------------------
+async function api(path, options = {}) {
+  const res = await fetch('/api' + path, {
+    method: options.method || 'GET',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: options.body ? JSON.stringify(options.body) : undefined,
+  });
+  let data = null;
+  try { data = await res.json(); } catch { data = null; }
+  if (!res.ok) throw new Error((data && data.error) || `Lỗi ${res.status}`);
+  return data;
+}
+
+function toast(message, type = 'ok') {
+  const el = document.createElement('div');
+  el.className = 'msg ' + type;
+  el.textContent = message;
+  document.getElementById('toast').appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+// ---------------------------------------------------------------------------
+// Ô tìm-kiếm-gõ-chọn tự dựng (thay <input list>+<datalist> native — xem CLAUDE.md)
+// Cách dùng: input có data-sdd-list="dropdownId" trỏ tới div#dropdownId[data-sdd-dropdown].
+// sddSetOptions(dropdownId, items) nạp danh sách {id, label, sub?}.
+// Khi chọn 1 mục: input.value = label, input.dataset.sddValue = id, bắn CustomEvent 'sdd-select'.
+// ---------------------------------------------------------------------------
+const SDD_REGISTRY = {};
+
+function normalizeText(s) {
+  return (s || '').toString().toLowerCase()
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/đ/g, 'd');
+}
+
+function sddSetOptions(dropdownId, items) {
+  SDD_REGISTRY[dropdownId] = items || [];
+  const input = document.querySelector(`[data-sdd-list="${dropdownId}"]`);
+  if (input && input.dataset.sddValue) {
+    const found = items.find((i) => String(i.id) === String(input.dataset.sddValue));
+    if (found) input.value = found.label;
+  }
+}
+
+function sddRenderDropdown(input) {
+  const dropdownId = input.dataset.sddList;
+  const dropdown = document.getElementById(dropdownId);
+  if (!dropdown) return;
+  const items = SDD_REGISTRY[dropdownId] || [];
+  const q = normalizeText(input.value);
+  const matches = (q ? items.filter((i) => normalizeText(i.label).includes(q) || normalizeText(i.sub).includes(q)) : items).slice(0, 50);
+
+  dropdown.innerHTML = '';
+  if (!matches.length) {
+    dropdown.innerHTML = '<div class="sdd-empty">Không có kết quả</div>';
+  } else {
+    matches.forEach((item) => {
+      const opt = document.createElement('div');
+      opt.className = 'sdd-option';
+      opt.innerHTML = item.sub ? `${item.label}<div class="sub">${item.sub}</div>` : item.label;
+      opt.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        input.value = item.label;
+        input.dataset.sddValue = item.id;
+        dropdown.classList.add('hidden');
+        input.dispatchEvent(new CustomEvent('sdd-select', { detail: item }));
+      });
+      dropdown.appendChild(opt);
+    });
+  }
+  dropdown.classList.remove('hidden');
+}
+
+document.addEventListener('input', (e) => {
+  if (e.target.matches('[data-sdd-list]')) {
+    e.target.dataset.sddValue = '';
+    sddRenderDropdown(e.target);
+  }
+});
+document.addEventListener('focusin', (e) => {
+  if (e.target.matches('[data-sdd-list]')) sddRenderDropdown(e.target);
+});
+document.addEventListener('focusout', (e) => {
+  if (e.target.matches('[data-sdd-list]')) {
+    const dropdown = document.getElementById(e.target.dataset.sddList);
+    setTimeout(() => { if (dropdown) dropdown.classList.add('hidden'); }, 120);
+  }
+});
+
+function sddClear(inputId) {
+  const input = document.getElementById(inputId);
+  if (input) { input.value = ''; input.dataset.sddValue = ''; }
+}
+function sddValue(inputId) {
+  const input = document.getElementById(inputId);
+  return input && input.dataset.sddValue ? input.dataset.sddValue : null;
+}
+
+// ---------------------------------------------------------------------------
+// Auth
+// ---------------------------------------------------------------------------
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const username = document.getElementById('loginUsername').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  document.getElementById('loginError').textContent = '';
+  try {
+    const data = await api('/auth/login', { method: 'POST', body: { username, password } });
+    CURRENT_USER = data.user;
+    await enterApp();
+  } catch (err) {
+    document.getElementById('loginError').textContent = err.message;
+  }
+});
+
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  try { await api('/auth/logout', { method: 'POST' }); } catch {}
+  location.reload();
+});
+
+async function enterApp() {
+  document.getElementById('loginView').classList.add('hidden');
+  document.getElementById('appView').classList.remove('hidden');
+  document.getElementById('whoName').textContent = CURRENT_USER.username;
+  document.querySelectorAll('[data-require-perm]').forEach((el) => {
+    const permOk = CURRENT_USER.isAdmin || CURRENT_USER.perms[el.dataset.requirePerm];
+    el.style.display = permOk ? '' : 'none';
+  });
+  try {
+    const health = await api('/health');
+    document.getElementById('whoVersion').textContent = health && health.version ? `(v${health.version})` : '';
+  } catch {}
+  buildPermsCheckboxes();
+  await loadAllCatalogData();
+  await Promise.all([loadInventory(), loadPricing(), loadHr(), loadUsers().catch(() => {}), loadConfig().catch(() => {}), loadLogs().catch(() => {})]);
+  updateDashboardStats();
+}
+
+// ---------------------------------------------------------------------------
+// Tabs
+// ---------------------------------------------------------------------------
+document.querySelectorAll('.tab-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach((p) => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Danh mục sản phẩm
+// ---------------------------------------------------------------------------
+async function loadAllCatalogData() {
+  const [categories, products, warehouses] = await Promise.all([
+    api('/catalog/categories'), api('/catalog/products'), api('/catalog/warehouses'),
+  ]);
+  CACHE.categories = categories; CACHE.products = products; CACHE.warehouses = warehouses;
+
+  sddSetOptions('prodCategoryDropdown', categories.map((c) => ({ id: c.CategoryId, label: c.CategoryName })));
+  ['impProductDropdown', 'trfProductDropdown', 'adjProductDropdown', 'piProductDropdown'].forEach((id) =>
+    sddSetOptions(id, products.map((p) => ({ id: p.ProductId, label: p.ProductName, sub: p.SKU }))));
+  ['impWarehouseDropdown', 'trfFromDropdown', 'trfToDropdown', 'adjWarehouseDropdown'].forEach((id) =>
+    sddSetOptions(id, warehouses.map((w) => ({ id: w.WarehouseId, label: w.WarehouseName, sub: w.WarehouseCode }))));
+
+  renderCategories(); renderProducts(); renderWarehouses();
+}
+
+function renderCategories() {
+  document.getElementById('tblCategories').innerHTML = CACHE.categories.map((c) => `
+    <tr><td>${c.CategoryName}</td><td>${c.DefaultSerialTracking ? 'Có' : 'Không'}</td>
+    <td><span class="badge ${c.IsActive ? 'ok' : 'off'}">${c.IsActive ? 'Hoạt động' : 'Ngừng'}</span></td></tr>`).join('');
+}
+function renderProducts() {
+  document.getElementById('tblProducts').innerHTML = CACHE.products.map((p) => `
+    <tr><td>${p.SKU}</td><td>${p.ProductName}</td><td>${p.Brand || ''}</td><td>${p.CategoryName || ''}</td>
+    <td>${p.UnitOfMeasure}</td><td>${p.EffectiveSerialTracking ? 'Có' : 'Không'}</td></tr>`).join('');
+}
+function renderWarehouses() {
+  document.getElementById('tblWarehouses').innerHTML = CACHE.warehouses.map((w) => `
+    <tr><td>${w.WarehouseCode}</td><td>${w.WarehouseName}</td><td>${w.Address || ''}</td></tr>`).join('');
+}
+
+document.getElementById('formCategory').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('/catalog/categories', { method: 'POST', body: {
+      categoryName: document.getElementById('catName').value.trim(),
+      defaultSerialTracking: document.getElementById('catSerial').checked,
+    }});
+    e.target.reset();
+    toast('Đã thêm nhóm sản phẩm');
+    await loadAllCatalogData();
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+document.getElementById('formProduct').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('/catalog/products', { method: 'POST', body: {
+      sku: document.getElementById('prodSku').value.trim(),
+      productName: document.getElementById('prodName').value.trim(),
+      brand: document.getElementById('prodBrand').value.trim(),
+      categoryId: sddValue('prodCategoryInput'),
+      unitOfMeasure: document.getElementById('prodUom').value.trim() || 'Cái',
+    }});
+    e.target.reset(); sddClear('prodCategoryInput');
+    toast('Đã thêm sản phẩm');
+    await loadAllCatalogData();
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+document.getElementById('formWarehouse').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('/catalog/warehouses', { method: 'POST', body: {
+      warehouseCode: document.getElementById('whCode').value.trim(),
+      warehouseName: document.getElementById('whName').value.trim(),
+      address: document.getElementById('whAddress').value.trim(),
+    }});
+    e.target.reset();
+    toast('Đã thêm kho');
+    await loadAllCatalogData();
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+// ---------------------------------------------------------------------------
+// Kho hàng
+// ---------------------------------------------------------------------------
+async function loadInventory() {
+  const [balances, transactions] = await Promise.all([api('/inventory/balances'), api('/inventory/transactions')]);
+  document.getElementById('tblBalances').innerHTML = balances.map((b) => `
+    <tr><td>${b.SKU}</td><td>${b.ProductName}</td><td>${b.WarehouseName}</td>
+    <td>${b.OnHandQty}</td><td>${b.ReservedQty}</td><td>${b.AvailableQty}</td><td>${Number(b.AvgCost).toLocaleString('vi-VN')}</td></tr>`).join('');
+  document.getElementById('tblTransactions').innerHTML = transactions.map((t) => `
+    <tr><td>${new Date(t.CreatedAt).toLocaleString('vi-VN')}</td><td>${t.SKU} - ${t.ProductName}</td><td>${t.WarehouseName}</td>
+    <td>${t.TransType}</td><td>${t.Quantity}</td><td>${t.UnitCost != null ? Number(t.UnitCost).toLocaleString('vi-VN') : ''}</td>
+    <td>${t.Note || ''}</td><td>${t.CreatedBy || ''}</td></tr>`).join('');
+  document.getElementById('statTrans').textContent = transactions.length;
+}
+
+document.getElementById('formImport').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('/inventory/import', { method: 'POST', body: {
+      productId: sddValue('impProductInput'), warehouseId: sddValue('impWarehouseInput'),
+      quantity: Number(document.getElementById('impQty').value), unitCost: Number(document.getElementById('impCost').value),
+      note: document.getElementById('impNote').value.trim(),
+    }});
+    e.target.reset(); sddClear('impProductInput'); sddClear('impWarehouseInput');
+    toast('Đã nhập kho');
+    await loadInventory();
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+document.getElementById('formTransfer').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('/inventory/transfer', { method: 'POST', body: {
+      productId: sddValue('trfProductInput'), fromWarehouseId: sddValue('trfFromInput'), toWarehouseId: sddValue('trfToInput'),
+      quantity: Number(document.getElementById('trfQty').value), note: document.getElementById('trfNote').value.trim(),
+    }});
+    e.target.reset(); sddClear('trfProductInput'); sddClear('trfFromInput'); sddClear('trfToInput');
+    toast('Đã chuyển kho');
+    await loadInventory();
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+document.getElementById('formAdjust').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('/inventory/adjust', { method: 'POST', body: {
+      productId: sddValue('adjProductInput'), warehouseId: sddValue('adjWarehouseInput'),
+      newOnHandQty: Number(document.getElementById('adjQty').value), note: document.getElementById('adjNote').value.trim(),
+    }});
+    e.target.reset(); sddClear('adjProductInput'); sddClear('adjWarehouseInput');
+    toast('Đã điều chỉnh tồn kho');
+    await loadInventory();
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+// ---------------------------------------------------------------------------
+// Bảng giá & Hạng đại lý & Khu vực
+// ---------------------------------------------------------------------------
+let currentPriceListId = null;
+
+async function loadPricing() {
+  const [tiers, regions, priceLists] = await Promise.all([
+    api('/catalog/dealer-tiers'), api('/catalog/regions'), api('/catalog/price-lists'),
+  ]);
+  CACHE.tiers = tiers; CACHE.regions = regions; CACHE.priceLists = priceLists;
+  sddSetOptions('plTierDropdown', tiers.map((t) => ({ id: t.TierId, label: t.TierName })));
+
+  document.getElementById('tblTiers').innerHTML = tiers.map((t) => `
+    <tr><td>${t.TierName}</td><td>${t.DefaultMaxDiscountPct}%</td>
+    <td>${Number(t.DefaultCreditLimit).toLocaleString('vi-VN')}</td><td>${t.DefaultPaymentTermDays}</td></tr>`).join('');
+  document.getElementById('tblRegions').innerHTML = regions.map((r) => `<tr><td>${r.RegionCode}</td><td>${r.RegionName}</td></tr>`).join('');
+  document.getElementById('tblPriceLists').innerHTML = priceLists.map((pl) => `
+    <tr><td>${pl.PriceListName}</td><td>${pl.TierName || '(mọi hạng)'}</td>
+    <td>${pl.EffectiveFrom ? pl.EffectiveFrom.substring(0,10) : ''} - ${pl.EffectiveTo ? pl.EffectiveTo.substring(0,10) : '...'}</td>
+    <td>${pl.Status}</td><td><button class="btn secondary" data-view-pricelist="${pl.PriceListId}" data-name="${pl.PriceListName}">Xem giá</button></td></tr>`).join('');
+
+  document.querySelectorAll('[data-view-pricelist]').forEach((btn) => btn.addEventListener('click', () => openPriceList(btn.dataset.viewPricelist, btn.dataset.name)));
+}
+
+async function openPriceList(id, name) {
+  currentPriceListId = id;
+  document.getElementById('priceItemsCard').classList.remove('hidden');
+  document.getElementById('priceItemsListName').textContent = name;
+  const items = await api(`/catalog/price-lists/${id}/items`);
+  document.getElementById('tblPriceItems').innerHTML = items.map((i) => `
+    <tr><td>${i.SKU}</td><td>${i.ProductName}</td><td>${Number(i.ListPrice).toLocaleString('vi-VN')}</td><td>${i.MaxDiscountPct}%</td></tr>`).join('');
+}
+
+document.getElementById('formTier').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('/catalog/dealer-tiers', { method: 'POST', body: {
+      tierName: document.getElementById('tierName').value.trim(),
+      defaultMaxDiscountPct: Number(document.getElementById('tierDiscount').value),
+      defaultCreditLimit: Number(document.getElementById('tierCredit').value),
+      defaultPaymentTermDays: Number(document.getElementById('tierTerm').value),
+    }});
+    e.target.reset();
+    toast('Đã thêm hạng đại lý');
+    await loadPricing();
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+document.getElementById('formRegion').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('/catalog/regions', { method: 'POST', body: {
+      regionCode: document.getElementById('regionCode').value.trim(),
+      regionName: document.getElementById('regionName').value.trim(),
+    }});
+    e.target.reset();
+    toast('Đã thêm khu vực');
+    await loadPricing();
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+document.getElementById('formPriceList').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('/catalog/price-lists', { method: 'POST', body: {
+      priceListName: document.getElementById('plName').value.trim(),
+      dealerTierId: sddValue('plTierInput'),
+      effectiveFrom: document.getElementById('plFrom').value,
+      effectiveTo: document.getElementById('plTo').value || null,
+    }});
+    e.target.reset(); sddClear('plTierInput');
+    toast('Đã tạo bảng giá');
+    await loadPricing();
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+document.getElementById('formPriceItem').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!currentPriceListId) return;
+  try {
+    await api(`/catalog/price-lists/${currentPriceListId}/items`, { method: 'POST', body: {
+      productId: sddValue('piProductInput'), listPrice: Number(document.getElementById('piPrice').value),
+      maxDiscountPct: Number(document.getElementById('piDiscount').value),
+    }});
+    e.target.reset(); sddClear('piProductInput');
+    toast('Đã thêm giá sản phẩm');
+    await openPriceList(currentPriceListId, document.getElementById('priceItemsListName').textContent);
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+// ---------------------------------------------------------------------------
+// Vị trí & Nhân viên
+// ---------------------------------------------------------------------------
+async function loadHr() {
+  const [positions, employees] = await Promise.all([api('/employees/positions'), api('/employees')]);
+  CACHE.positions = positions; CACHE.employees = employees;
+  sddSetOptions('empPositionDropdown', positions.map((p) => ({ id: p.PositionId, label: p.PositionName, sub: p.Department })));
+  sddSetOptions('userEmployeeDropdown', employees.map((e) => ({ id: e.EmployeeId, label: e.FullName, sub: e.EmployeeCode })));
+
+  document.getElementById('tblPositions').innerHTML = positions.map((p) => `
+    <tr><td>${p.PositionCode}</td><td>${p.PositionName}</td><td>${p.Department || ''}</td></tr>`).join('');
+  document.getElementById('tblEmployees').innerHTML = employees.map((e) => `
+    <tr><td>${e.EmployeeCode}</td><td>${e.FullName}</td><td>${e.PositionName || ''}</td><td>${e.Department || ''}</td>
+    <td><span class="badge ${e.IsActive ? 'ok' : 'off'}">${e.IsActive ? 'Hoạt động' : 'Ngừng'}</span></td></tr>`).join('');
+  document.getElementById('statEmployees').textContent = employees.length;
+}
+
+document.getElementById('formPosition').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('/employees/positions', { method: 'POST', body: {
+      positionCode: document.getElementById('posCode').value.trim(),
+      positionName: document.getElementById('posName').value.trim(),
+      department: document.getElementById('posDept').value.trim(),
+    }});
+    e.target.reset();
+    toast('Đã thêm vị trí');
+    await loadHr();
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+document.getElementById('formEmployee').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('/employees', { method: 'POST', body: {
+      employeeCode: document.getElementById('empCode').value.trim(),
+      fullName: document.getElementById('empName').value.trim(),
+      email: document.getElementById('empEmail').value.trim(),
+      positionId: sddValue('empPositionInput'),
+    }});
+    e.target.reset(); sddClear('empPositionInput');
+    toast('Đã thêm nhân viên');
+    await loadHr();
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+// ---------------------------------------------------------------------------
+// Tài khoản & Phân quyền
+// ---------------------------------------------------------------------------
+function buildPermsCheckboxes() {
+  document.getElementById('permsCheckboxes').innerHTML = PERM_KEYS.map((p) => `
+    <div class="field"><label><input type="checkbox" class="perm-checkbox" value="${p.key}"> ${p.label}</label></div>`).join('');
+}
+
+async function loadUsers() {
+  const users = await api('/employees/users');
+  document.getElementById('tblUsers').innerHTML = users.map((u) => `
+    <tr><td>${u.Username}</td><td>${u.FullName || ''}</td>
+    <td>${u.IsAdmin ? 'Toàn quyền (Admin)' : Object.keys(u.perms).filter((k) => u.perms[k]).join(', ') || '-'}</td>
+    <td><span class="badge ${u.IsActive ? 'ok' : 'off'}">${u.IsActive ? 'Hoạt động' : 'Khóa'}</span></td>
+    <td>${u.LastLoginAt ? new Date(u.LastLoginAt).toLocaleString('vi-VN') : 'Chưa đăng nhập'}</td></tr>`).join('');
+}
+
+document.getElementById('formUser').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const perms = {};
+  document.querySelectorAll('.perm-checkbox:checked').forEach((cb) => { perms[cb.value] = true; });
+  try {
+    await api('/employees/users', { method: 'POST', body: {
+      username: document.getElementById('userUsername').value.trim(),
+      password: document.getElementById('userPassword').value,
+      employeeId: sddValue('userEmployeeInput'),
+      isAdmin: document.getElementById('userIsAdmin').checked,
+      perms,
+    }});
+    e.target.reset(); sddClear('userEmployeeInput');
+    toast('Đã tạo tài khoản');
+    await loadUsers();
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+// ---------------------------------------------------------------------------
+// Cấu hình hệ thống
+// ---------------------------------------------------------------------------
+async function loadConfig() {
+  const config = await api('/system/config');
+  document.getElementById('tblConfig').innerHTML = config.map((c) => `
+    <tr><td>${c.ConfigKey}</td>
+    <td><input value="${c.ConfigValue || ''}" data-config-key="${c.ConfigKey}" style="padding:5px 8px;border:1px solid var(--border);border-radius:5px;width:200px"></td>
+    <td><button class="btn secondary" data-save-config="${c.ConfigKey}">Lưu</button></td></tr>`).join('');
+  document.querySelectorAll('[data-save-config]').forEach((btn) => btn.addEventListener('click', async () => {
+    const key = btn.dataset.saveConfig;
+    const value = document.querySelector(`[data-config-key="${key}"]`).value;
+    try { await api(`/system/config/${key}`, { method: 'PUT', body: { value } }); toast('Đã lưu cấu hình'); }
+    catch (err) { toast(err.message, 'err'); }
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Nhật ký hệ thống
+// ---------------------------------------------------------------------------
+async function loadLogs() {
+  const logs = await api('/system/logs');
+  document.getElementById('tblLogs').innerHTML = logs.map((l) => `
+    <tr><td>${new Date(l.CreatedAt).toLocaleString('vi-VN')}</td><td>${l.Username || ''}</td><td>${l.Action}</td>
+    <td>${l.EntityType || ''} ${l.EntityId || ''}</td><td style="max-width:300px;white-space:normal">${l.DetailJson || ''}</td></tr>`).join('');
+}
+
+function updateDashboardStats() {
+  document.getElementById('statProducts').textContent = CACHE.products.length;
+  document.getElementById('statWarehouses').textContent = CACHE.warehouses.length;
+}
+
+// ---------------------------------------------------------------------------
+// Bootstrap
+// ---------------------------------------------------------------------------
+(async function init() {
+  try {
+    const data = await api('/auth/me');
+    CURRENT_USER = data.user;
+    await enterApp();
+  } catch {
+    document.getElementById('loginView').classList.remove('hidden');
+  }
+})();
+</script>
+</body>
+</html>

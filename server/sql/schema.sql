@@ -930,12 +930,42 @@ BEGIN
 END
 GO
 
+-- ============================================================================
+-- MODULE 11: BÁO CÁO TỔNG HỢP (Fact_Sales) — Giai đoạn 5
+--
+-- Đặt trước Module 6 procs vì FulfillSalesOrder ghi Fact_Sales khi xuất kho.
+-- Kiến trúc "dài" (Mục 11.1): thêm chỉ số mới chỉ cần thêm MeasureCode, không
+-- cần sửa schema — mỗi dòng 1 (chiều × chỉ số), KHÔNG dồn nhiều chỉ số/cột.
+-- ============================================================================
+
+IF OBJECT_ID('dbo.Fact_Sales') IS NULL
+BEGIN
+    CREATE TABLE dbo.Fact_Sales (
+        FactId              INT IDENTITY PRIMARY KEY,
+        ReportDate           DATE NOT NULL,
+        DealerId              INT NULL,
+        ProjectId             INT NULL,
+        ProductCategoryId      INT NULL,
+        ChannelId               INT NULL,
+        SalesEmployeeId           INT NULL,
+        MeasureCode                NVARCHAR(30) NOT NULL,   -- REVENUE / COGS / GROSS_MARGIN / QTY / DISCOUNT_AMOUNT
+        MeasureValue                 DECIMAL(18,2) NOT NULL
+    );
+    CREATE INDEX IX_FactSales_Report ON dbo.Fact_Sales (ReportDate, MeasureCode);
+    CREATE INDEX IX_FactSales_Dealer ON dbo.Fact_Sales (DealerId, MeasureCode);
+END
+GO
+
 -- Xuất kho thật cho 1 dòng hàng đã có sẵn giữ chỗ (Reserved) — chuyển từ
 -- "đã giữ" sang "đã xuất", KHÔNG đổi OnHandQty ngoài phần đang giữ của chính
--- dòng này (tách biệt khỏi ImportStock/AdjustStock/TransferStock).
+-- dòng này (tách biệt khỏi ImportStock/AdjustStock/TransferStock). Trả lại
+-- @CostOut = giá vốn bình quân tại thời điểm xuất, dùng tính COGS/biên lợi
+-- nhuận cho Fact_Sales ở FulfillSalesOrder — không tính lại/đoán giá vốn ở
+-- tầng ứng dụng (Zero Trust).
 CREATE OR ALTER PROCEDURE dbo.ExportSoldStock
     @ProductId INT, @WarehouseId INT, @Qty DECIMAL(18,2),
-    @RefType NVARCHAR(30) = NULL, @RefId BIGINT = NULL, @CreatedBy NVARCHAR(100) = NULL
+    @RefType NVARCHAR(30) = NULL, @RefId BIGINT = NULL, @CreatedBy NVARCHAR(100) = NULL,
+    @CostOut DECIMAL(18,4) = NULL OUTPUT
 AS
 BEGIN
     SET NOCOUNT ON;
@@ -956,6 +986,7 @@ BEGIN
         INSERT INTO dbo.InventoryTransactions (ProductId, WarehouseId, TransType, Quantity, UnitCost, RefType, RefId, CreatedBy)
         VALUES (@ProductId, @WarehouseId, 'EXPORT_SALE', @Qty, @Cost, @RefType, @RefId, @CreatedBy);
 
+        SET @CostOut = @Cost;
         COMMIT;
     END TRY
     BEGIN CATCH
@@ -967,33 +998,58 @@ GO
 
 -- Đơn ĐÃ DUYỆT → xuất kho thật cho mọi dòng hàng + phát sinh công nợ (nếu
 -- RequiresCreditCheck=1, VD Đại lý) + đẩy 1 dòng vào hàng đợi đồng bộ kế toán
--- (Mục 8.2) — tất cả trong 1 giao dịch. @PayloadJson do tầng ứng dụng build
--- sẵn (JSON hoá đơn dạng chuẩn hoá), truyền vào để ghi cùng lúc, tránh trường
--- hợp Công nợ đã ghi nhưng hàng đợi kế toán bị thiếu do lỗi rời rạc.
+-- (Mục 8.2) + ghi Fact_Sales (Module 11: REVENUE/QTY/DISCOUNT_AMOUNT/COGS/
+-- GROSS_MARGIN mỗi dòng hàng) — tất cả trong 1 giao dịch. @PayloadJson do
+-- tầng ứng dụng build sẵn (JSON hoá đơn dạng chuẩn hoá), truyền vào để ghi
+-- cùng lúc, tránh trường hợp Công nợ đã ghi nhưng hàng đợi kế toán bị thiếu
+-- do lỗi rời rạc. SalesEmployeeId lấy đúng người phụ trách HIỆN TẠI của Đại
+-- lý/Dự án tại thời điểm xuất kho (Module 10 — không cần tra lịch sử ở đây
+-- vì Fact_Sales tự mang ReportDate, tra lịch sử đúng thời điểm là việc của
+-- báo cáo khi cần dựng lại theo Sale cũ).
 CREATE OR ALTER PROCEDURE dbo.FulfillSalesOrder
     @OrderId BIGINT, @PayloadJson NVARCHAR(MAX) = NULL, @CreatedBy NVARCHAR(100) = NULL
 AS
 BEGIN
     SET NOCOUNT ON;
-    DECLARE @Status NVARCHAR(20), @WarehouseId INT, @DealerId INT, @RequiresCredit BIT, @Total DECIMAL(18,2);
-    SELECT @Status=Status, @WarehouseId=WarehouseId, @DealerId=DealerId, @RequiresCredit=RequiresCreditCheck, @Total=TotalAmount
+    DECLARE @Status NVARCHAR(20), @WarehouseId INT, @DealerId INT, @ProjectId INT, @ChannelId INT,
+            @RequiresCredit BIT, @Total DECIMAL(18,2);
+    SELECT @Status=Status, @WarehouseId=WarehouseId, @DealerId=DealerId, @ProjectId=ProjectId, @ChannelId=ChannelId,
+           @RequiresCredit=RequiresCreditCheck, @Total=TotalAmount
     FROM dbo.SalesOrders WHERE OrderId=@OrderId;
 
     IF @Status IS NULL THROW 50035, N'Không tìm thấy đơn hàng', 1;
     IF @Status <> 'APPROVED' THROW 50036, N'Chỉ xuất kho được đơn hàng ở trạng thái ĐÃ DUYỆT', 1;
 
+    DECLARE @SalesEmployeeId INT;
+    IF @DealerId IS NOT NULL SELECT @SalesEmployeeId = AssignedSalesId FROM dbo.Dealers WHERE DealerId = @DealerId;
+    ELSE IF @ProjectId IS NOT NULL SELECT @SalesEmployeeId = AssignedSalesId FROM dbo.Projects WHERE ProjectId = @ProjectId;
+
     BEGIN TRANSACTION;
     BEGIN TRY
-        DECLARE @ProductId INT, @Qty DECIMAL(18,2);
+        DECLARE @ProductId INT, @Qty DECIMAL(18,2), @UnitPrice DECIMAL(18,2), @DiscountPct DECIMAL(5,2),
+                @LineTotal DECIMAL(18,2), @CategoryId INT, @ItemCost DECIMAL(18,4);
         DECLARE item_cursor CURSOR LOCAL FAST_FORWARD FOR
-            SELECT ProductId, Quantity FROM dbo.SalesOrderItems WHERE OrderId = @OrderId;
+            SELECT i.ProductId, i.Quantity, i.UnitPrice, i.DiscountPct, i.LineTotal, p.CategoryId
+            FROM dbo.SalesOrderItems i JOIN dbo.Products p ON p.ProductId = i.ProductId WHERE i.OrderId = @OrderId;
         OPEN item_cursor;
-        FETCH NEXT FROM item_cursor INTO @ProductId, @Qty;
+        FETCH NEXT FROM item_cursor INTO @ProductId, @Qty, @UnitPrice, @DiscountPct, @LineTotal, @CategoryId;
         WHILE @@FETCH_STATUS = 0
         BEGIN
             EXEC dbo.ExportSoldStock @ProductId=@ProductId, @WarehouseId=@WarehouseId, @Qty=@Qty,
-                 @RefType='SalesOrder', @RefId=@OrderId, @CreatedBy=@CreatedBy;
-            FETCH NEXT FROM item_cursor INTO @ProductId, @Qty;
+                 @RefType='SalesOrder', @RefId=@OrderId, @CreatedBy=@CreatedBy, @CostOut=@ItemCost OUTPUT;
+
+            INSERT INTO dbo.Fact_Sales (ReportDate, DealerId, ProjectId, ProductCategoryId, ChannelId, SalesEmployeeId, MeasureCode, MeasureValue)
+            VALUES
+                (CAST(SYSUTCDATETIME() AS DATE), @DealerId, @ProjectId, @CategoryId, @ChannelId, @SalesEmployeeId, 'REVENUE', @LineTotal),
+                (CAST(SYSUTCDATETIME() AS DATE), @DealerId, @ProjectId, @CategoryId, @ChannelId, @SalesEmployeeId, 'QTY', @Qty),
+                (CAST(SYSUTCDATETIME() AS DATE), @DealerId, @ProjectId, @CategoryId, @ChannelId, @SalesEmployeeId, 'DISCOUNT_AMOUNT',
+                    CAST(@Qty * @UnitPrice * @DiscountPct / 100.0 AS DECIMAL(18,2))),
+                (CAST(SYSUTCDATETIME() AS DATE), @DealerId, @ProjectId, @CategoryId, @ChannelId, @SalesEmployeeId, 'COGS',
+                    CAST(@Qty * @ItemCost AS DECIMAL(18,2))),
+                (CAST(SYSUTCDATETIME() AS DATE), @DealerId, @ProjectId, @CategoryId, @ChannelId, @SalesEmployeeId, 'GROSS_MARGIN',
+                    CAST(@LineTotal - (@Qty * @ItemCost) AS DECIMAL(18,2)));
+
+            FETCH NEXT FROM item_cursor INTO @ProductId, @Qty, @UnitPrice, @DiscountPct, @LineTotal, @CategoryId;
         END
         CLOSE item_cursor; DEALLOCATE item_cursor;
 

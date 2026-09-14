@@ -6,6 +6,12 @@ liệu gốc đã cung cấp: `thiet_ke_he_thong_phan_phoi_cntt.md`.
 
 ## Trạng thái triển khai
 
+Đã triển khai đủ **5/5 giai đoạn** theo lộ trình Mục 14 tài liệu thiết kế.
+Chi tiết từng giai đoạn bên dưới — đặc biệt đọc kỹ các mục "Giới hạn/quyết
+định thiết kế cần biết" vì đó là những chỗ đã đơn giản hoá so với mô tả gốc
+(thường do 1 module khác chưa có khái niệm cần thiết), có thể cần tinh chỉnh
+khi có nghiệp vụ thực tế.
+
 **Giai đoạn 1 — Nền tảng (ĐÃ CÓ trong code):**
 - Danh mục nền tảng: Nhóm sản phẩm, Sản phẩm, Kho, Bảng giá, Hạng đại lý, Khu vực
 - Kho hàng: tồn kho thực tế/đã giữ/khả dụng theo đúng 3 con số riêng biệt,
@@ -70,8 +76,28 @@ liệu gốc đã cung cấp: `thiet_ke_he_thong_phan_phoi_cntt.md`.
   chỉ đổi trạng thái, chưa có sổ cái riêng cho Dự án (tương tự giới hạn đã
   nêu ở Giai đoạn 3 cho đơn hàng Dự án).
 
-**Các giai đoạn sau (CHƯA triển khai — xem lộ trình Mục 14 tài liệu thiết kế):**
-Báo cáo tổng hợp.
+**Giai đoạn 5 — Báo cáo tổng hợp (ĐÃ CÓ trong code):**
+- Kiến trúc "dài" `Fact_Sales` (Mục 11.1): mỗi dòng 1 (chiều × chỉ số) —
+  `REVENUE`/`COGS`/`GROSS_MARGIN`/`QTY`/`DISCOUNT_AMOUNT`, ghi tự động ngay
+  khi `FulfillSalesOrder` xuất kho (giá vốn lấy đúng giá vốn bình quân thật
+  tại thời điểm xuất, không tính lại/đoán). Thêm chỉ số mới sau này chỉ cần
+  thêm `MeasureCode`, không sửa schema.
+- 7 báo cáo cụ thể theo đúng Mục 11.3 (doanh thu đại lý theo kỳ + tăng
+  trưởng %, chân dung đại lý, chân dung/tỷ lệ thắng thầu dự án, công nợ +
+  tuổi nợ theo FIFO, tồn kho + vòng quay hàng, hiệu suất kênh, hiệu suất
+  Sale) + 1 bộ lọc động (chọn Chiều × Chỉ số × Khoảng thời gian, Mục 11.2).
+- Xuất CSV (tương đương Excel, mở được trực tiếp bằng Excel) cho cả báo cáo
+  theo mẫu lẫn bộ lọc động — có chống Formula Injection (ô bắt đầu bằng
+  `=`/`+`/`-`/`@` tự thêm dấu nháy đơn phía trước).
+- **Giới hạn**: báo cáo "Tồn kho & vòng quay hàng" tính tốc độ bán từ
+  `InventoryTransactions` (chính xác theo từng SKU) thay vì `Fact_Sales`
+  (chỉ có `ProductCategoryId`, không có `ProductId` theo đúng thiết kế Mục
+  11.1) — 2 nguồn dữ liệu khác nhau cho 2 mục đích khác nhau, không phải
+  thiếu nhất quán.
+
+Đã hoàn tất toàn bộ lộ trình Mục 14. Các hạng mục cần tinh chỉnh thêm khi có
+số liệu/nghiệp vụ thực tế của công ty đã liệt kê rải rác ở từng mục "Giới
+hạn/quyết định thiết kế cần biết" bên trên.
 
 ## Cấu trúc thư mục
 
@@ -92,7 +118,8 @@ server/
 │   ├── finance.js          # Hàng đợi đồng bộ kế toán, xuất CSV
 │   ├── external.js         # API kế toán ngoài (xác nhận thanh toán, X-API-Key)
 │   ├── contracts.js        # Hợp đồng, phụ lục thanh toán, Duyệt chi/Xác nhận thu tiền
-│   └── crm.js              # Tương tác khách hàng (Đội Sale)
+│   ├── crm.js              # Tương tác khách hàng (Đội Sale)
+│   └── reports.js          # Fact_Sales, 7 báo cáo cụ thể + bộ lọc động
 ├── lib/
 │   └── accountingAdapters.js   # Adapter Pattern kế toán (ExcelExportAdapter mặc định)
 ├── jobs/

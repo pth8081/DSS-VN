@@ -19,38 +19,77 @@ router.post('/', requirePerm('projectManage'), async (req, res) => {
   if (!projectName) return res.status(400).json({ error: 'Thiếu tên dự án' });
 
   const pool = await getPool();
-  const result = await pool.request()
-    .input('name', sql.NVarChar, projectName)
-    .input('endCustomer', sql.NVarChar, endCustomerName || null)
-    .input('estimatedValue', sql.Decimal(18, 2), estimatedValue || null)
-    .input('stage', sql.NVarChar, stage || 'LEAD')
-    .input('expectedCloseDate', sql.Date, expectedCloseDate || null)
-    .input('notes', sql.NVarChar, competitorNotes || null)
-    .input('assignedSalesId', sql.Int, assignedSalesId || null)
-    .query(`INSERT INTO dbo.Projects (ProjectName, EndCustomerName, EstimatedValue, Stage, ExpectedCloseDate, CompetitorNotes, AssignedSalesId)
-            OUTPUT INSERTED.* VALUES (@name, @endCustomer, @estimatedValue, @stage, @expectedCloseDate, @notes, @assignedSalesId)`);
-  await logAction(req, 'CREATE', 'Project', result.recordset[0].ProjectId, req.body);
-  res.status(201).json(result.recordset[0]);
+  const tx = new sql.Transaction(pool);
+  await tx.begin();
+  try {
+    const result = await new sql.Request(tx)
+      .input('name', sql.NVarChar, projectName)
+      .input('endCustomer', sql.NVarChar, endCustomerName || null)
+      .input('estimatedValue', sql.Decimal(18, 2), estimatedValue || null)
+      .input('stage', sql.NVarChar, stage || 'LEAD')
+      .input('expectedCloseDate', sql.Date, expectedCloseDate || null)
+      .input('notes', sql.NVarChar, competitorNotes || null)
+      .input('assignedSalesId', sql.Int, assignedSalesId || null)
+      .query(`INSERT INTO dbo.Projects (ProjectName, EndCustomerName, EstimatedValue, Stage, ExpectedCloseDate, CompetitorNotes, AssignedSalesId)
+              OUTPUT INSERTED.* VALUES (@name, @endCustomer, @estimatedValue, @stage, @expectedCloseDate, @notes, @assignedSalesId)`);
+
+    const project = result.recordset[0];
+    if (assignedSalesId) {
+      await new sql.Request(tx)
+        .input('projectId', sql.Int, project.ProjectId).input('salesId', sql.Int, assignedSalesId)
+        .query(`INSERT INTO dbo.ProjectSalesAssignmentHistory (ProjectId, SalesEmployeeId, StartDate)
+                VALUES (@projectId, @salesId, CAST(SYSUTCDATETIME() AS DATE))`);
+    }
+    await tx.commit();
+    await logAction(req, 'CREATE', 'Project', project.ProjectId, req.body);
+    res.status(201).json(project);
+  } catch (err) {
+    await tx.rollback();
+    throw err;
+  }
 });
 
 router.put('/:id', requirePerm('projectManage'), async (req, res) => {
   const { projectName, endCustomerName, estimatedValue, stage, expectedCloseDate, competitorNotes, assignedSalesId, lostReason } = req.body || {};
   const pool = await getPool();
-  await pool.request()
-    .input('id', sql.Int, req.params.id)
-    .input('name', sql.NVarChar, projectName)
-    .input('endCustomer', sql.NVarChar, endCustomerName || null)
-    .input('estimatedValue', sql.Decimal(18, 2), estimatedValue || null)
-    .input('stage', sql.NVarChar, stage || 'LEAD')
-    .input('expectedCloseDate', sql.Date, expectedCloseDate || null)
-    .input('notes', sql.NVarChar, competitorNotes || null)
-    .input('assignedSalesId', sql.Int, assignedSalesId || null)
-    .input('lostReason', sql.NVarChar, lostReason || null)
-    .query(`UPDATE dbo.Projects SET ProjectName=@name, EndCustomerName=@endCustomer, EstimatedValue=@estimatedValue,
-            Stage=@stage, ExpectedCloseDate=@expectedCloseDate, CompetitorNotes=@notes,
-            AssignedSalesId=@assignedSalesId, LostReason=@lostReason WHERE ProjectId=@id`);
-  await logAction(req, 'UPDATE', 'Project', req.params.id, req.body);
-  res.json({ ok: true });
+  const current = await pool.request().input('id', sql.Int, req.params.id)
+    .query('SELECT AssignedSalesId FROM dbo.Projects WHERE ProjectId = @id');
+  if (!current.recordset[0]) return res.status(404).json({ error: 'Không tìm thấy dự án' });
+  const salesChanged = assignedSalesId != null && assignedSalesId !== current.recordset[0].AssignedSalesId;
+
+  const tx = new sql.Transaction(pool);
+  await tx.begin();
+  try {
+    await new sql.Request(tx)
+      .input('id', sql.Int, req.params.id)
+      .input('name', sql.NVarChar, projectName)
+      .input('endCustomer', sql.NVarChar, endCustomerName || null)
+      .input('estimatedValue', sql.Decimal(18, 2), estimatedValue || null)
+      .input('stage', sql.NVarChar, stage || 'LEAD')
+      .input('expectedCloseDate', sql.Date, expectedCloseDate || null)
+      .input('notes', sql.NVarChar, competitorNotes || null)
+      .input('assignedSalesId', sql.Int, assignedSalesId || null)
+      .input('lostReason', sql.NVarChar, lostReason || null)
+      .query(`UPDATE dbo.Projects SET ProjectName=@name, EndCustomerName=@endCustomer, EstimatedValue=@estimatedValue,
+              Stage=@stage, ExpectedCloseDate=@expectedCloseDate, CompetitorNotes=@notes,
+              AssignedSalesId=@assignedSalesId, LostReason=@lostReason WHERE ProjectId=@id`);
+
+    if (salesChanged) {
+      await new sql.Request(tx).input('id', sql.Int, req.params.id)
+        .query(`UPDATE dbo.ProjectSalesAssignmentHistory SET EndDate = CAST(SYSUTCDATETIME() AS DATE)
+                WHERE ProjectId=@id AND EndDate IS NULL`);
+      await new sql.Request(tx).input('projectId', sql.Int, req.params.id).input('salesId', sql.Int, assignedSalesId)
+        .query(`INSERT INTO dbo.ProjectSalesAssignmentHistory (ProjectId, SalesEmployeeId, StartDate)
+                VALUES (@projectId, @salesId, CAST(SYSUTCDATETIME() AS DATE))`);
+    }
+
+    await tx.commit();
+    await logAction(req, 'UPDATE', 'Project', req.params.id, req.body);
+    res.json({ ok: true });
+  } catch (err) {
+    await tx.rollback();
+    throw err;
+  }
 });
 
 // --- Báo giá dự án ---

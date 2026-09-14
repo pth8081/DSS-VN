@@ -92,6 +92,8 @@
     <button class="tab-btn" data-tab="projects">Khách hàng dự án</button>
     <button class="tab-btn" data-tab="sales">Bán hàng</button>
     <button class="tab-btn" data-tab="finance" data-require-perm="reportViewFinance">Công nợ &amp; Kế toán</button>
+    <button class="tab-btn" data-tab="contracts">Hợp đồng &amp; Thanh toán</button>
+    <button class="tab-btn" data-tab="crm">CRM / Đội Sale</button>
     <button class="tab-btn" data-tab="hr">Vị trí &amp; Nhân viên</button>
     <button class="tab-btn" data-tab="users" data-require-perm="employeeManage">Tài khoản &amp; Phân quyền</button>
     <button class="tab-btn" data-tab="config" data-require-perm="employeeManage">Cấu hình hệ thống</button>
@@ -475,6 +477,104 @@
       </div>
     </div>
 
+    <div class="panel" id="panel-contracts">
+      <h2>Hợp đồng &amp; Thanh toán</h2>
+      <div class="card">
+        <h3>Tạo hợp đồng</h3>
+        <form id="formContract">
+          <div class="form-row">
+            <div class="field"><label>Mã hợp đồng</label><input required id="ctrCode" style="min-width:120px"></div>
+            <div class="field"><label>Tên hợp đồng</label><input required id="ctrName" style="min-width:220px"></div>
+            <div class="field"><label>Loại hợp đồng</label>
+              <select id="ctrType">
+                <option value="DEALER_FRAMEWORK">Khung với Đại lý</option>
+                <option value="PROJECT">Theo Dự án</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row" id="ctrDealerRow">
+            <div class="field"><label>Đại lý</label>
+              <input autocomplete="off" id="ctrDealerInput" data-sdd-list="ctrDealerDropdown" placeholder="Gõ để tìm...">
+              <div id="ctrDealerDropdown" class="hidden sdd-dropdown" data-sdd-dropdown></div>
+            </div>
+          </div>
+          <div class="form-row hidden" id="ctrProjectRow">
+            <div class="field"><label>Dự án</label>
+              <input autocomplete="off" id="ctrProjectInput" data-sdd-list="ctrProjectDropdown" placeholder="Gõ để tìm...">
+              <div id="ctrProjectDropdown" class="hidden sdd-dropdown" data-sdd-dropdown></div>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="field"><label>Giá trị hợp đồng</label><input type="number" step="1000" id="ctrValue" style="min-width:140px"></div>
+            <div class="field"><label>Hiệu lực từ</label><input type="date" required id="ctrFrom"></div>
+            <div class="field"><label>Hiệu lực đến</label><input type="date" id="ctrTo"></div>
+            <button class="btn" type="submit">Tạo hợp đồng</button>
+          </div>
+        </form>
+        <table><thead><tr><th>Mã</th><th>Tên hợp đồng</th><th>Loại</th><th>Đối tác</th><th>Giá trị</th><th>Trạng thái</th><th></th></tr></thead><tbody id="tblContracts"></tbody></table>
+      </div>
+
+      <div class="card hidden" id="milestonesCard">
+        <h3>Phụ lục thanh toán: <span id="milestonesContractName"></span></h3>
+        <form class="form-row" id="formMilestone">
+          <div class="field"><label>Tên phụ lục</label><input required id="msName" placeholder="VD: Tạm ứng 30%" style="min-width:180px"></div>
+          <div class="field"><label>Loại</label>
+            <select id="msType">
+              <option value="ADVANCE">Tạm ứng</option>
+              <option value="ACCEPTANCE">Nghiệm thu</option>
+              <option value="FINAL">Quyết toán</option>
+              <option value="OTHER">Khác</option>
+            </select>
+          </div>
+          <div class="field"><label>Số tiền</label><input type="number" step="1000" required id="msAmount" style="min-width:130px"></div>
+          <div class="field"><label>Hạn thanh toán</label><input type="date" id="msDueDate"></div>
+          <button class="btn" type="submit">Thêm phụ lục</button>
+        </form>
+        <table><thead><tr><th>Tên phụ lục</th><th>Loại</th><th>Số tiền</th><th>Hạn</th><th>Trạng thái</th><th></th></tr></thead><tbody id="tblMilestones"></tbody></table>
+      </div>
+    </div>
+
+    <div class="panel" id="panel-crm">
+      <h2>CRM / Đội Sale</h2>
+      <div class="card">
+        <h3>Ghi nhận tương tác khách hàng</h3>
+        <form id="formInteraction">
+          <div class="form-row">
+            <div class="field"><label>Nhân viên Sale</label>
+              <input autocomplete="off" id="crmSalesInput" data-sdd-list="crmSalesDropdown" placeholder="Gõ để tìm...">
+              <div id="crmSalesDropdown" class="hidden sdd-dropdown" data-sdd-dropdown></div>
+            </div>
+            <div class="field"><label>Loại khách hàng</label>
+              <select id="crmCustomerType"><option value="DEALER">Đại lý</option><option value="PROJECT">Khách hàng dự án</option></select>
+            </div>
+            <div class="field"><label>Hình thức</label>
+              <select id="crmType"><option value="CALL">Gọi điện</option><option value="MEETING">Gặp mặt</option><option value="EMAIL">Email</option><option value="VISIT">Thăm khách hàng</option></select>
+            </div>
+          </div>
+          <div class="form-row" id="crmDealerRow">
+            <div class="field"><label>Đại lý</label>
+              <input autocomplete="off" id="crmDealerInput" data-sdd-list="crmDealerDropdown" placeholder="Gõ để tìm...">
+              <div id="crmDealerDropdown" class="hidden sdd-dropdown" data-sdd-dropdown></div>
+            </div>
+          </div>
+          <div class="form-row hidden" id="crmProjectRow">
+            <div class="field"><label>Dự án</label>
+              <input autocomplete="off" id="crmProjectInput" data-sdd-list="crmProjectDropdown" placeholder="Gõ để tìm...">
+              <div id="crmProjectDropdown" class="hidden sdd-dropdown" data-sdd-dropdown></div>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="field" style="flex:1"><label>Nội dung</label><input id="crmSummary" style="min-width:100%"></div>
+          </div>
+          <div class="form-row">
+            <div class="field"><label>Ngày hẹn tiếp theo</label><input type="date" id="crmNextAction"></div>
+            <button class="btn" type="submit">Ghi nhận</button>
+          </div>
+        </form>
+        <table><thead><tr><th>Thời gian</th><th>Sale</th><th>Khách hàng</th><th>Hình thức</th><th>Nội dung</th><th>Hẹn tiếp theo</th></tr></thead><tbody id="tblInteractions"></tbody></table>
+      </div>
+    </div>
+
     <div class="panel" id="panel-hr">
       <h2>Vị trí &amp; Nhân viên</h2>
       <div class="card">
@@ -551,6 +651,7 @@ const PERM_KEYS = [
   { key: 'projectManage', label: 'Quản lý khách hàng dự án' },
   { key: 'salesOrderCreate', label: 'Tạo/gửi duyệt/hủy đơn hàng' },
   { key: 'salesConfigManage', label: 'Quản lý kênh bán hàng' },
+  { key: 'contractManage', label: 'Quản lý hợp đồng & duyệt chi phụ lục thanh toán' },
   { key: 'salesApproveStandard', label: 'Duyệt đơn hàng CHUẨN' },
   { key: 'salesApproveException', label: 'Duyệt đơn hàng NGOẠI LỆ (vượt hạn mức/chiết khấu)' },
   { key: 'reportViewFinance', label: 'Xem công nợ đại lý & báo cáo tài chính' },
@@ -703,6 +804,7 @@ async function enterApp() {
     loadInventory(), loadDealers(), loadProjects(), loadSales(),
     loadUsers().catch(() => {}), loadConfig().catch(() => {}), loadLogs().catch(() => {}), loadFinance().catch(() => {}),
   ]);
+  await Promise.all([loadContracts(), loadCrm()]);
   updateDashboardStats();
 }
 
@@ -1331,6 +1433,130 @@ document.getElementById('btnExportCsv').addEventListener('click', async () => {
     URL.revokeObjectURL(url);
     toast('Đã xuất CSV, các hoá đơn đã đánh dấu SENT');
     await loadFinance();
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+// ---------------------------------------------------------------------------
+// Hợp đồng & Thanh toán (Module 9)
+// ---------------------------------------------------------------------------
+let currentContractId = null;
+const MILESTONE_STATUS_LABEL = { PENDING: 'Chờ duyệt chi', APPROVED: 'Đã duyệt chi', PAID: 'Đã thu tiền' };
+
+async function loadContracts() {
+  const contracts = await api('/contracts');
+  document.getElementById('tblContracts').innerHTML = contracts.map((c) => `
+    <tr><td>${c.ContractCode}</td><td>${c.ContractName}</td>
+    <td>${c.ContractType === 'DEALER_FRAMEWORK' ? 'Khung Đại lý' : 'Theo Dự án'}</td>
+    <td>${c.DealerName || c.ProjectName || ''}</td>
+    <td>${c.TotalValue != null ? Number(c.TotalValue).toLocaleString('vi-VN') : ''}</td>
+    <td><span class="badge ${c.Status === 'ACTIVE' ? 'ok' : 'off'}">${c.Status}</span></td>
+    <td><button class="btn secondary" data-view-contract="${c.ContractId}" data-name="${c.ContractName}">Phụ lục TT</button></td></tr>`).join('');
+  document.querySelectorAll('[data-view-contract]').forEach((btn) =>
+    btn.addEventListener('click', () => openMilestones(btn.dataset.viewContract, btn.dataset.name)));
+}
+
+async function openMilestones(contractId, name) {
+  currentContractId = contractId;
+  document.getElementById('milestonesCard').classList.remove('hidden');
+  document.getElementById('milestonesContractName').textContent = name;
+  const milestones = await api(`/contracts/${contractId}/milestones`);
+  document.getElementById('tblMilestones').innerHTML = milestones.map((m) => `
+    <tr><td>${m.MilestoneName}</td><td>${m.MilestoneType}</td><td>${Number(m.Amount).toLocaleString('vi-VN')}</td>
+    <td>${m.DueDate ? m.DueDate.substring(0, 10) : ''}</td>
+    <td><span class="badge ${m.Status === 'PAID' ? 'ok' : ''}">${MILESTONE_STATUS_LABEL[m.Status] || m.Status}</span></td>
+    <td>${m.Status === 'PENDING' ? `<button class="btn secondary" data-approve-ms="${m.MilestoneId}">Duyệt chi</button>` : ''}
+        ${m.Status === 'APPROVED' ? `<button class="btn" data-confirm-ms="${m.MilestoneId}">Xác nhận đã thu tiền</button>` : ''}</td></tr>`).join('');
+
+  document.querySelectorAll('[data-approve-ms]').forEach((btn) => btn.addEventListener('click', async () => {
+    try { await api(`/contracts/milestones/${btn.dataset.approveMs}/approve`, { method: 'POST' }); await openMilestones(contractId, name); }
+    catch (err) { toast(err.message, 'err'); }
+  }));
+  document.querySelectorAll('[data-confirm-ms]').forEach((btn) => btn.addEventListener('click', async () => {
+    try {
+      await api(`/contracts/milestones/${btn.dataset.confirmMs}/confirm-paid`, { method: 'POST' });
+      toast('Đã xác nhận thu tiền, ghi nhận vào công nợ đại lý (nếu có)');
+      await Promise.all([openMilestones(contractId, name), loadFinance().catch(() => {})]);
+    } catch (err) { toast(err.message, 'err'); }
+  }));
+}
+
+document.getElementById('ctrType').addEventListener('change', (e) => {
+  document.getElementById('ctrDealerRow').classList.toggle('hidden', e.target.value !== 'DEALER_FRAMEWORK');
+  document.getElementById('ctrProjectRow').classList.toggle('hidden', e.target.value !== 'PROJECT');
+});
+
+document.getElementById('formContract').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    const contractType = document.getElementById('ctrType').value;
+    await api('/contracts', { method: 'POST', body: {
+      contractCode: document.getElementById('ctrCode').value.trim(),
+      contractName: document.getElementById('ctrName').value.trim(),
+      contractType,
+      dealerId: contractType === 'DEALER_FRAMEWORK' ? sddValue('ctrDealerInput') : null,
+      projectId: contractType === 'PROJECT' ? sddValue('ctrProjectInput') : null,
+      totalValue: document.getElementById('ctrValue').value || null,
+      effectiveFrom: document.getElementById('ctrFrom').value,
+      effectiveTo: document.getElementById('ctrTo').value || null,
+    }});
+    e.target.reset(); sddClear('ctrDealerInput'); sddClear('ctrProjectInput');
+    toast('Đã tạo hợp đồng');
+    await loadContracts();
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+document.getElementById('formMilestone').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!currentContractId) return;
+  try {
+    await api(`/contracts/${currentContractId}/milestones`, { method: 'POST', body: {
+      milestoneName: document.getElementById('msName').value.trim(),
+      milestoneType: document.getElementById('msType').value,
+      amount: Number(document.getElementById('msAmount').value),
+      dueDate: document.getElementById('msDueDate').value || null,
+    }});
+    e.target.reset();
+    toast('Đã thêm phụ lục thanh toán');
+    await openMilestones(currentContractId, document.getElementById('milestonesContractName').textContent);
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+// ---------------------------------------------------------------------------
+// CRM / Đội Sale (Module 10)
+// ---------------------------------------------------------------------------
+async function loadCrm() {
+  sddSetOptions('crmSalesDropdown', CACHE.employees.map((e) => ({ id: e.EmployeeId, label: e.FullName, sub: e.EmployeeCode })));
+  sddSetOptions('crmDealerDropdown', (CACHE.dealers || []).map((d) => ({ id: d.DealerId, label: d.DealerName, sub: d.DealerCode })));
+  sddSetOptions('crmProjectDropdown', (CACHE.projects || []).map((p) => ({ id: p.ProjectId, label: p.ProjectName, sub: p.EndCustomerName })));
+
+  const interactions = await api('/crm/interactions');
+  document.getElementById('tblInteractions').innerHTML = interactions.map((i) => `
+    <tr><td>${new Date(i.CreatedAt).toLocaleString('vi-VN')}</td><td>${i.SalesEmployeeName}</td>
+    <td>${i.DealerName || i.ProjectName || ''}</td><td>${i.InteractionType}</td>
+    <td>${i.Summary || ''}</td><td>${i.NextActionDate ? i.NextActionDate.substring(0, 10) : ''}</td></tr>`).join('');
+}
+
+document.getElementById('crmCustomerType').addEventListener('change', (e) => {
+  document.getElementById('crmDealerRow').classList.toggle('hidden', e.target.value !== 'DEALER');
+  document.getElementById('crmProjectRow').classList.toggle('hidden', e.target.value !== 'PROJECT');
+});
+
+document.getElementById('formInteraction').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    const customerType = document.getElementById('crmCustomerType').value;
+    await api('/crm/interactions', { method: 'POST', body: {
+      salesEmployeeId: sddValue('crmSalesInput'),
+      customerType,
+      dealerId: customerType === 'DEALER' ? sddValue('crmDealerInput') : null,
+      projectId: customerType === 'PROJECT' ? sddValue('crmProjectInput') : null,
+      interactionType: document.getElementById('crmType').value,
+      summary: document.getElementById('crmSummary').value.trim(),
+      nextActionDate: document.getElementById('crmNextAction').value || null,
+    }});
+    e.target.reset(); sddClear('crmSalesInput'); sddClear('crmDealerInput'); sddClear('crmProjectInput');
+    toast('Đã ghi nhận tương tác');
+    await loadCrm();
   } catch (err) { toast(err.message, 'err'); }
 });
 

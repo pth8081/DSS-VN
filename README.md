@@ -27,6 +27,7 @@ liệu gốc đã cung cấp: `thiet_ke_he_thong_phan_phoi_cntt.md`.
   duyệt (giữ hàng thật qua `ReserveStock`) → hủy (nhả hàng qua `ReleaseStock`);
   cron quét mỗi giờ tự hủy đơn CHỜ DUYỆT quá hạn giữ hàng
   (`server/jobs/expireReservations.js`)
+
 **Giai đoạn 3 — Kiểm soát (ĐÃ CÓ trong code):**
 - Ma trận phê duyệt bán hàng: gửi duyệt tự tính `evaluateIsStandardDeal` ngay
   tại server (giá bán vs bảng giá, hạn mức công nợ hiệu lực trừ công nợ hiện
@@ -52,8 +53,25 @@ liệu gốc đã cung cấp: `thiet_ke_he_thong_phan_phoi_cntt.md`.
   niệm hạn mức/hạng như Đại lý — xem lại nếu nghiệp vụ thực tế cần khác.
   `MisaAdapter` mới là stub — cắm API thật khi xác nhận phần mềm kế toán.
 
+**Giai đoạn 4 — Hợp đồng & Thanh toán, CRM (ĐÃ CÓ trong code):**
+- Hợp đồng: 2 loại (Khung với Đại lý — hiệu lực dài hạn, không theo từng đơn
+  hàng; Theo Dự án — 1 hợp đồng/1 dự án) + phụ lục thanh toán theo giai đoạn
+  (tạm ứng/nghiệm thu/quyết toán). Thanh toán tách 2 bước: "Duyệt chi" (xác
+  nhận nội bộ phụ lục hợp lệ, quyền `contractManage`) → "Xác nhận đã thu tiền"
+  (quyền `reportViewFinance`, tách biệt người duyệt khỏi người xác nhận tiền
+  — chỉ bước này mới ghi nhận vào `DealerLedger` nếu hợp đồng gắn Đại lý).
+- CRM: ghi nhận tương tác khách hàng (gọi điện/gặp mặt/email/thăm khách hàng)
+  theo Đại lý hoặc Dự án. Đổi Sale phụ trách ở Đại lý/Dự án nay giữ lịch sử
+  (`DealerSalesAssignmentHistory`/`ProjectSalesAssignmentHistory`, cùng mô
+  hình `EmployeePositionHistory`) — chuẩn bị dữ liệu cho báo cáo doanh số
+  Giai đoạn 5 tính đúng theo người phụ trách tại đúng thời điểm phát sinh,
+  không tính nhầm cho người mới nhận bàn giao sau này.
+- **Giới hạn**: hợp đồng Dự án không gắn Đại lý thì phụ lục xác nhận thu tiền
+  chỉ đổi trạng thái, chưa có sổ cái riêng cho Dự án (tương tự giới hạn đã
+  nêu ở Giai đoạn 3 cho đơn hàng Dự án).
+
 **Các giai đoạn sau (CHƯA triển khai — xem lộ trình Mục 14 tài liệu thiết kế):**
-Hợp đồng & Thanh toán, CRM/Đội Sale, Báo cáo tổng hợp.
+Báo cáo tổng hợp.
 
 ## Cấu trúc thư mục
 
@@ -72,7 +90,9 @@ server/
 │   ├── projects.js         # Khách hàng dự án, báo giá
 │   ├── sales.js            # Kênh bán hàng, đơn hàng đa kênh, phê duyệt, xuất kho/công nợ
 │   ├── finance.js          # Hàng đợi đồng bộ kế toán, xuất CSV
-│   └── external.js         # API kế toán ngoài (xác nhận thanh toán, X-API-Key)
+│   ├── external.js         # API kế toán ngoài (xác nhận thanh toán, X-API-Key)
+│   ├── contracts.js        # Hợp đồng, phụ lục thanh toán, Duyệt chi/Xác nhận thu tiền
+│   └── crm.js              # Tương tác khách hàng (Đội Sale)
 ├── lib/
 │   └── accountingAdapters.js   # Adapter Pattern kế toán (ExcelExportAdapter mặc định)
 ├── jobs/

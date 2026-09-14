@@ -42,8 +42,10 @@ router.post('/', requirePerm('dealerManage'), async (req, res) => {
   }
 
   const pool = await getPool();
+  const tx = new sql.Transaction(pool);
+  await tx.begin();
   try {
-    const result = await pool.request()
+    const result = await new sql.Request(tx)
       .input('code', sql.NVarChar, dealerCode)
       .input('name', sql.NVarChar, dealerName)
       .input('taxCode', sql.NVarChar, taxCode || null)
@@ -56,9 +58,19 @@ router.post('/', requirePerm('dealerManage'), async (req, res) => {
                 PaymentTermDaysOverride, RegionId, AssignedSalesId)
               OUTPUT INSERTED.*
               VALUES (@code, @name, @taxCode, @tierId, @creditLimitOverride, @paymentTermDaysOverride, @regionId, @assignedSalesId)`);
-    await logAction(req, 'CREATE', 'Dealer', result.recordset[0].DealerId, req.body);
-    res.status(201).json(result.recordset[0]);
+
+    const dealer = result.recordset[0];
+    if (assignedSalesId) {
+      await new sql.Request(tx)
+        .input('dealerId', sql.Int, dealer.DealerId).input('salesId', sql.Int, assignedSalesId)
+        .query(`INSERT INTO dbo.DealerSalesAssignmentHistory (DealerId, SalesEmployeeId, StartDate)
+                VALUES (@dealerId, @salesId, CAST(SYSUTCDATETIME() AS DATE))`);
+    }
+    await tx.commit();
+    await logAction(req, 'CREATE', 'Dealer', dealer.DealerId, req.body);
+    res.status(201).json(dealer);
   } catch (err) {
+    await tx.rollback();
     if (err.number === 2627) return res.status(409).json({ error: 'Mã đại lý hoặc mã số thuế đã tồn tại' });
     throw err;
   }
@@ -72,27 +84,46 @@ router.put('/:id', requirePerm('dealerManage'), async (req, res) => {
 
   const pool = await getPool();
   const current = await pool.request().input('id', sql.Int, req.params.id)
-    .query('SELECT TierId, CreditLimitOverride FROM dbo.Dealers WHERE DealerId = @id');
+    .query('SELECT TierId, CreditLimitOverride, AssignedSalesId FROM dbo.Dealers WHERE DealerId = @id');
   if (!current.recordset[0]) return res.status(404).json({ error: 'Không tìm thấy đại lý' });
+  const salesChanged = assignedSalesId != null && assignedSalesId !== current.recordset[0].AssignedSalesId;
 
-  const request = pool.request()
-    .input('id', sql.Int, req.params.id)
-    .input('name', sql.NVarChar, dealerName)
-    .input('taxCode', sql.NVarChar, taxCode || null)
-    .input('regionId', sql.Int, regionId || null)
-    .input('assignedSalesId', sql.Int, assignedSalesId || null)
-    .input('status', sql.NVarChar, status || 'ACTIVE');
+  const tx = new sql.Transaction(pool);
+  await tx.begin();
+  try {
+    const request = new sql.Request(tx)
+      .input('id', sql.Int, req.params.id)
+      .input('name', sql.NVarChar, dealerName)
+      .input('taxCode', sql.NVarChar, taxCode || null)
+      .input('regionId', sql.Int, regionId || null)
+      .input('assignedSalesId', sql.Int, assignedSalesId || null)
+      .input('status', sql.NVarChar, status || 'ACTIVE');
 
-  let setClause = `DealerName=@name, TaxCode=@taxCode, RegionId=@regionId, AssignedSalesId=@assignedSalesId, Status=@status`;
-  if (touchesCreditFields(req.body)) {
-    request.input('tierId', sql.Int, req.body.tierId || null);
-    request.input('creditLimitOverride', sql.Decimal(18, 2), req.body.creditLimitOverride ?? null);
-    request.input('paymentTermDaysOverride', sql.Int, req.body.paymentTermDaysOverride ?? null);
-    setClause += `, TierId=@tierId, CreditLimitOverride=@creditLimitOverride, PaymentTermDaysOverride=@paymentTermDaysOverride`;
+    let setClause = `DealerName=@name, TaxCode=@taxCode, RegionId=@regionId, AssignedSalesId=@assignedSalesId, Status=@status`;
+    if (touchesCreditFields(req.body)) {
+      request.input('tierId', sql.Int, req.body.tierId || null);
+      request.input('creditLimitOverride', sql.Decimal(18, 2), req.body.creditLimitOverride ?? null);
+      request.input('paymentTermDaysOverride', sql.Int, req.body.paymentTermDaysOverride ?? null);
+      setClause += `, TierId=@tierId, CreditLimitOverride=@creditLimitOverride, PaymentTermDaysOverride=@paymentTermDaysOverride`;
+    }
+    await request.query(`UPDATE dbo.Dealers SET ${setClause} WHERE DealerId=@id`);
+
+    if (salesChanged) {
+      await new sql.Request(tx).input('id', sql.Int, req.params.id)
+        .query(`UPDATE dbo.DealerSalesAssignmentHistory SET EndDate = CAST(SYSUTCDATETIME() AS DATE)
+                WHERE DealerId=@id AND EndDate IS NULL`);
+      await new sql.Request(tx).input('dealerId', sql.Int, req.params.id).input('salesId', sql.Int, assignedSalesId)
+        .query(`INSERT INTO dbo.DealerSalesAssignmentHistory (DealerId, SalesEmployeeId, StartDate)
+                VALUES (@dealerId, @salesId, CAST(SYSUTCDATETIME() AS DATE))`);
+    }
+
+    await tx.commit();
+    await logAction(req, 'UPDATE', 'Dealer', req.params.id, req.body);
+    res.json({ ok: true });
+  } catch (err) {
+    await tx.rollback();
+    throw err;
   }
-  await request.query(`UPDATE dbo.Dealers SET ${setClause} WHERE DealerId=@id`);
-  await logAction(req, 'UPDATE', 'Dealer', req.params.id, req.body);
-  res.json({ ok: true });
 });
 
 // --- Lịch sử xét duyệt hạn mức (Mục 15.1) ---

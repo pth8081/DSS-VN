@@ -1,6 +1,6 @@
 {
   "name": "dss-vn-server",
-  "version": "1.2",
+  "version": "1.3",
   "description": "Nền tảng quản trị vận hành - Phân phối CNTT (Distribution Operations Platform)",
   "private": true,
   "main": "server.js",

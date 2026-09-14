@@ -1018,6 +1018,150 @@ END
 GO
 
 -- ============================================================================
+-- MODULE 9: HỢP ĐỒNG & THANH TOÁN — Giai đoạn 4
+--
+-- 2 đối tượng hợp đồng khác nhau dùng chung 1 bảng (ContractType phân biệt):
+-- Hợp đồng khung Đại lý (hiệu lực dài hạn, không theo từng đơn hàng) và Hợp
+-- đồng theo Dự án (1 hợp đồng/1 dự án, phụ lục thanh toán theo giai đoạn).
+-- Thanh toán tách 2 bước — "Duyệt chi" (xác nhận nội bộ phụ lục hợp lệ, sẵn
+-- sàng xuất hoá đơn) và "Xác nhận đã thu tiền" (tiền đã thực nhận) — chỉ bước
+-- sau mới ghi nhận vào DealerLedger (nếu hợp đồng có gắn Đại lý cụ thể; hợp
+-- đồng Dự án thuần không gắn Đại lý thì chỉ cập nhật trạng thái phụ lục, chưa
+-- có sổ cái riêng cho Dự án — xem giới hạn tương tự ở Module 6/7).
+-- ============================================================================
+
+IF OBJECT_ID('dbo.Contracts') IS NULL
+BEGIN
+    CREATE TABLE dbo.Contracts (
+        ContractId       INT IDENTITY PRIMARY KEY,
+        ContractCode      NVARCHAR(30) UNIQUE NOT NULL,
+        ContractType       NVARCHAR(20) NOT NULL,   -- DEALER_FRAMEWORK / PROJECT
+        DealerId            INT NULL REFERENCES dbo.Dealers(DealerId),
+        ProjectId           INT NULL REFERENCES dbo.Projects(ProjectId),
+        ContractName         NVARCHAR(300) NOT NULL,
+        TotalValue            DECIMAL(18,2) NULL,
+        EffectiveFrom          DATE NOT NULL,
+        EffectiveTo             DATE NULL,
+        Status                   NVARCHAR(20) NOT NULL DEFAULT 'ACTIVE',   -- DRAFT / ACTIVE / EXPIRED / TERMINATED
+        CreatedBy                 NVARCHAR(100) NULL,
+        CreatedAt                  DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+    );
+END
+GO
+
+IF OBJECT_ID('dbo.ContractPaymentMilestones') IS NULL
+BEGIN
+    CREATE TABLE dbo.ContractPaymentMilestones (
+        MilestoneId        INT IDENTITY PRIMARY KEY,
+        ContractId          INT NOT NULL REFERENCES dbo.Contracts(ContractId),
+        MilestoneName        NVARCHAR(200) NOT NULL,
+        MilestoneType         NVARCHAR(20) NOT NULL DEFAULT 'OTHER',   -- ADVANCE / ACCEPTANCE / FINAL / OTHER
+        Amount                  DECIMAL(18,2) NOT NULL,
+        DueDate                  DATE NULL,
+        Status                    NVARCHAR(20) NOT NULL DEFAULT 'PENDING',   -- PENDING / APPROVED / PAID
+        DisplayOrder               INT NOT NULL DEFAULT 0,
+        ApprovedByUserId            INT NULL,
+        ApprovedAt                   DATETIME2 NULL,
+        PaidAt                        DATETIME2 NULL
+    );
+END
+GO
+
+CREATE OR ALTER PROCEDURE dbo.ApproveContractMilestone
+    @MilestoneId INT, @UserId INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DECLARE @Status NVARCHAR(20);
+    SELECT @Status = Status FROM dbo.ContractPaymentMilestones WHERE MilestoneId = @MilestoneId;
+    IF @Status IS NULL THROW 50050, N'Không tìm thấy phụ lục thanh toán', 1;
+    IF @Status <> 'PENDING' THROW 50051, N'Phụ lục này đã được duyệt chi hoặc đã thanh toán', 1;
+
+    UPDATE dbo.ContractPaymentMilestones SET Status='APPROVED', ApprovedByUserId=@UserId, ApprovedAt=SYSUTCDATETIME()
+    WHERE MilestoneId = @MilestoneId;
+END
+GO
+
+CREATE OR ALTER PROCEDURE dbo.ConfirmContractMilestonePaid
+    @MilestoneId INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DECLARE @Status NVARCHAR(20), @ContractId INT, @Amount DECIMAL(18,2);
+    SELECT @Status=Status, @ContractId=ContractId, @Amount=Amount FROM dbo.ContractPaymentMilestones WHERE MilestoneId=@MilestoneId;
+    IF @Status IS NULL THROW 50052, N'Không tìm thấy phụ lục thanh toán', 1;
+    IF @Status <> 'APPROVED' THROW 50053, N'Phải Duyệt chi trước khi xác nhận đã thu tiền', 1;
+
+    DECLARE @DealerId INT;
+    SELECT @DealerId = DealerId FROM dbo.Contracts WHERE ContractId = @ContractId;
+
+    BEGIN TRANSACTION;
+    BEGIN TRY
+        UPDATE dbo.ContractPaymentMilestones SET Status='PAID', PaidAt=SYSUTCDATETIME() WHERE MilestoneId=@MilestoneId;
+
+        IF @DealerId IS NOT NULL
+        BEGIN
+            INSERT INTO dbo.DealerLedger (DealerId, EntryType, Amount, RefType, RefId)
+            VALUES (@DealerId, 'PAYMENT', -@Amount, 'ContractMilestone', @MilestoneId);
+        END
+
+        COMMIT;
+    END TRY
+    BEGIN CATCH
+        IF XACT_STATE() <> 0 ROLLBACK;
+        THROW;
+    END CATCH
+END
+GO
+
+-- ============================================================================
+-- MODULE 10: ĐỘI NGŨ SALE / CRM — Giai đoạn 4
+-- ============================================================================
+
+IF OBJECT_ID('dbo.SalesInteractions') IS NULL
+BEGIN
+    CREATE TABLE dbo.SalesInteractions (
+        InteractionId     BIGINT IDENTITY PRIMARY KEY,
+        SalesEmployeeId    INT NOT NULL REFERENCES dbo.Employees(EmployeeId),
+        CustomerType         NVARCHAR(20) NOT NULL,   -- DEALER / PROJECT
+        DealerId              INT NULL REFERENCES dbo.Dealers(DealerId),
+        ProjectId             INT NULL REFERENCES dbo.Projects(ProjectId),
+        InteractionType         NVARCHAR(20) NOT NULL,   -- CALL / MEETING / EMAIL / VISIT
+        Summary                   NVARCHAR(1000) NULL,
+        NextActionDate              DATE NULL,
+        CreatedAt                    DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+    );
+END
+GO
+
+-- Đổi Sale phụ trách phải giữ lịch sử (giống mô hình EmployeePositionHistory)
+-- — báo cáo doanh số (Giai đoạn 5) tính đúng theo Sale phụ trách TẠI ĐÚNG THỜI
+-- ĐIỂM phát sinh đơn hàng, không tính nhầm cho người mới nhận bàn giao sau này.
+IF OBJECT_ID('dbo.DealerSalesAssignmentHistory') IS NULL
+BEGIN
+    CREATE TABLE dbo.DealerSalesAssignmentHistory (
+        HistoryId         INT IDENTITY PRIMARY KEY,
+        DealerId           INT NOT NULL REFERENCES dbo.Dealers(DealerId),
+        SalesEmployeeId      INT NOT NULL REFERENCES dbo.Employees(EmployeeId),
+        StartDate              DATE NOT NULL,
+        EndDate                  DATE NULL
+    );
+END
+GO
+
+IF OBJECT_ID('dbo.ProjectSalesAssignmentHistory') IS NULL
+BEGIN
+    CREATE TABLE dbo.ProjectSalesAssignmentHistory (
+        HistoryId         INT IDENTITY PRIMARY KEY,
+        ProjectId           INT NOT NULL REFERENCES dbo.Projects(ProjectId),
+        SalesEmployeeId       INT NOT NULL REFERENCES dbo.Employees(EmployeeId),
+        StartDate                DATE NOT NULL,
+        EndDate                    DATE NULL
+    );
+END
+GO
+
+-- ============================================================================
 -- SEED DỮ LIỆU MẶC ĐỊNH (chỉ chạy nếu bảng rỗng — an toàn khi chạy lại script)
 -- ============================================================================
 

@@ -1,6 +1,6 @@
 {
   "name": "dss-vn-server",
-  "version": "1.0",
+  "version": "1.1",
   "description": "Nền tảng quản trị vận hành - Phân phối CNTT (Distribution Operations Platform)",
   "private": true,
   "main": "server.js",
@@ -13,6 +13,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "express-async-errors": "^3.1.1",
     "express-rate-limit": "^7.4.0",
     "jsonwebtoken": "^9.0.2",
     "mssql": "^11.0.1"

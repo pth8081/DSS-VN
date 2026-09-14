@@ -88,6 +88,9 @@
     <button class="tab-btn" data-tab="catalog">Danh mục sản phẩm</button>
     <button class="tab-btn" data-tab="inventory">Kho hàng</button>
     <button class="tab-btn" data-tab="pricing">Bảng giá &amp; Hạng đại lý</button>
+    <button class="tab-btn" data-tab="dealers">Đại lý</button>
+    <button class="tab-btn" data-tab="projects">Khách hàng dự án</button>
+    <button class="tab-btn" data-tab="sales">Bán hàng</button>
     <button class="tab-btn" data-tab="hr">Vị trí &amp; Nhân viên</button>
     <button class="tab-btn" data-tab="users" data-require-perm="employeeManage">Tài khoản &amp; Phân quyền</button>
     <button class="tab-btn" data-tab="config" data-require-perm="employeeManage">Cấu hình hệ thống</button>
@@ -286,6 +289,169 @@
       </div>
     </div>
 
+    <div class="panel" id="panel-dealers">
+      <h2>Đại lý</h2>
+      <div class="card">
+        <h3>Thêm đại lý</h3>
+        <form id="formDealer">
+          <div class="form-row">
+            <div class="field"><label>Mã đại lý</label><input required id="dealerCode" style="min-width:100px"></div>
+            <div class="field"><label>Tên đại lý</label><input required id="dealerName" style="min-width:200px"></div>
+            <div class="field"><label>Mã số thuế</label><input id="dealerTaxCode" style="min-width:120px"></div>
+            <div class="field"><label>Khu vực</label>
+              <input autocomplete="off" id="dealerRegionInput" data-sdd-list="dealerRegionDropdown" placeholder="Gõ để tìm...">
+              <div id="dealerRegionDropdown" class="hidden sdd-dropdown" data-sdd-dropdown></div>
+            </div>
+            <div class="field"><label>Sale phụ trách</label>
+              <input autocomplete="off" id="dealerSalesInput" data-sdd-list="dealerSalesDropdown" placeholder="Gõ để tìm...">
+              <div id="dealerSalesDropdown" class="hidden sdd-dropdown" data-sdd-dropdown></div>
+            </div>
+          </div>
+          <div class="form-row" id="dealerCreditFields">
+            <div class="field"><label>Hạng đại lý</label>
+              <input autocomplete="off" id="dealerTierInput" data-sdd-list="dealerTierDropdown" placeholder="Gõ để tìm...">
+              <div id="dealerTierDropdown" class="hidden sdd-dropdown" data-sdd-dropdown></div>
+            </div>
+            <div class="field"><label>Hạn mức riêng (bỏ trống = theo hạng)</label><input type="number" step="1000" id="dealerCreditOverride" style="min-width:140px"></div>
+            <div class="field"><label>Số ngày công nợ riêng</label><input type="number" id="dealerTermOverride" style="min-width:100px"></div>
+          </div>
+          <button class="btn" type="submit">Thêm đại lý</button>
+        </form>
+        <table><thead><tr><th>Mã</th><th>Tên đại lý</th><th>Hạng</th><th>Hạn mức hiệu lực</th><th>Số ngày CN hiệu lực</th><th>Khu vực</th><th>Sale phụ trách</th><th>Trạng thái</th></tr></thead><tbody id="tblDealers"></tbody></table>
+      </div>
+      <div class="card">
+        <h3>Đại lý đủ điều kiện xét tăng hạn mức (onboard ≥ 3 tháng, chưa xét gần đây)</h3>
+        <table><thead><tr><th>Mã</th><th>Tên đại lý</th><th>Ngày onboard</th><th>Hạn mức hiện tại</th><th>Lần xét gần nhất</th></tr></thead><tbody id="tblCreditCandidates"></tbody></table>
+      </div>
+    </div>
+
+    <div class="panel" id="panel-projects">
+      <h2>Khách hàng dự án</h2>
+      <div class="card">
+        <h3>Thêm dự án</h3>
+        <form class="form-row" id="formProject">
+          <div class="field"><label>Tên dự án</label><input required id="projName" style="min-width:200px"></div>
+          <div class="field"><label>Khách hàng cuối</label><input id="projCustomer" style="min-width:180px"></div>
+          <div class="field"><label>Giá trị ước tính</label><input type="number" step="1000" id="projValue" style="min-width:130px"></div>
+          <div class="field"><label>Giai đoạn</label>
+            <select id="projStage">
+              <option value="LEAD">Lead</option>
+              <option value="QUALIFIED">Qualified</option>
+              <option value="QUOTED">Đã báo giá</option>
+              <option value="NEGOTIATION">Đàm phán</option>
+              <option value="WON">Thắng</option>
+              <option value="LOST">Thua</option>
+              <option value="IMPLEMENTING">Đang triển khai</option>
+              <option value="CLOSED">Đã đóng</option>
+            </select>
+          </div>
+          <div class="field"><label>Sale phụ trách</label>
+            <input autocomplete="off" id="projSalesInput" data-sdd-list="projSalesDropdown" placeholder="Gõ để tìm...">
+            <div id="projSalesDropdown" class="hidden sdd-dropdown" data-sdd-dropdown></div>
+          </div>
+          <button class="btn" type="submit">Thêm dự án</button>
+        </form>
+        <table><thead><tr><th>Tên dự án</th><th>KH cuối</th><th>Giá trị ước tính</th><th>Giai đoạn</th><th>Sale phụ trách</th><th></th></tr></thead><tbody id="tblProjects"></tbody></table>
+      </div>
+      <div class="card hidden" id="quotesCard">
+        <h3>Báo giá dự án: <span id="quotesProjectName"></span></h3>
+        <form class="form-row" id="formQuote">
+          <div class="field"><label>Tổng giá trị báo giá</label><input type="number" step="1000" required id="quoteAmount" style="min-width:140px"></div>
+          <button class="btn" type="submit">Thêm phiên bản báo giá</button>
+        </form>
+        <table><thead><tr><th>Phiên bản</th><th>Tổng giá trị</th><th>Trạng thái</th><th></th></tr></thead><tbody id="tblQuotes"></tbody></table>
+      </div>
+    </div>
+
+    <div class="panel" id="panel-sales">
+      <h2>Bán hàng đa kênh</h2>
+      <div class="card">
+        <h3>Kênh bán hàng</h3>
+        <form class="form-row" id="formChannel">
+          <div class="field"><label>Tên kênh</label><input required id="chName" style="min-width:180px"></div>
+          <div class="field"><label>Loại kênh</label>
+            <select id="chType">
+              <option value="DIRECT_SALES">Sale trực tiếp</option>
+              <option value="ECOMMERCE">Website B2C</option>
+              <option value="MARKETPLACE">Marketplace</option>
+              <option value="DEALER_PORTAL">Cổng đại lý</option>
+            </select>
+          </div>
+          <div class="field"><label>Giờ giữ hàng mặc định</label><input type="number" step="0.5" id="chHours" value="72" style="min-width:100px"></div>
+          <button class="btn" type="submit">Thêm kênh</button>
+        </form>
+        <table><thead><tr><th>Tên kênh</th><th>Loại</th><th>Giờ giữ hàng</th></tr></thead><tbody id="tblChannels"></tbody></table>
+      </div>
+
+      <div class="card">
+        <h3>Tạo đơn hàng</h3>
+        <form id="formOrder">
+          <div class="form-row">
+            <div class="field"><label>Loại đơn</label>
+              <select id="ordType"><option value="B2B">B2B</option><option value="B2C">B2C (trả trước)</option></select>
+            </div>
+            <div class="field"><label>Loại khách hàng</label>
+              <select id="ordCustomerType">
+                <option value="DEALER">Đại lý</option>
+                <option value="PROJECT">Khách hàng dự án</option>
+                <option value="RETAIL">Khách lẻ (Retail)</option>
+              </select>
+            </div>
+            <div class="field"><label>Kênh bán</label>
+              <input autocomplete="off" id="ordChannelInput" data-sdd-list="ordChannelDropdown" placeholder="Gõ để tìm...">
+              <div id="ordChannelDropdown" class="hidden sdd-dropdown" data-sdd-dropdown></div>
+            </div>
+            <div class="field"><label>Kho xuất</label>
+              <input autocomplete="off" id="ordWarehouseInput" data-sdd-list="ordWarehouseDropdown" placeholder="Gõ tên kho...">
+              <div id="ordWarehouseDropdown" class="hidden sdd-dropdown" data-sdd-dropdown></div>
+            </div>
+          </div>
+          <div class="form-row" id="ordDealerRow">
+            <div class="field"><label>Đại lý</label>
+              <input autocomplete="off" id="ordDealerInput" data-sdd-list="ordDealerDropdown" placeholder="Gõ để tìm...">
+              <div id="ordDealerDropdown" class="hidden sdd-dropdown" data-sdd-dropdown></div>
+            </div>
+          </div>
+          <div class="form-row hidden" id="ordProjectRow">
+            <div class="field"><label>Dự án</label>
+              <input autocomplete="off" id="ordProjectInput" data-sdd-list="ordProjectDropdown" placeholder="Gõ để tìm...">
+              <div id="ordProjectDropdown" class="hidden sdd-dropdown" data-sdd-dropdown></div>
+            </div>
+          </div>
+          <div class="form-row hidden" id="ordRetailRow">
+            <div class="field"><label>Tên khách</label><input id="ordCustomerName" style="min-width:160px"></div>
+            <div class="field"><label>SĐT</label><input id="ordCustomerPhone" style="min-width:120px"></div>
+            <div class="field"><label>Địa chỉ</label><input id="ordCustomerAddress" style="min-width:200px"></div>
+          </div>
+          <button class="btn" type="submit">Tạo đơn (NHÁP)</button>
+        </form>
+      </div>
+
+      <div class="card hidden" id="orderDetailCard">
+        <h3>Đơn hàng <span id="odCode"></span> — <span id="odStatus" class="badge"></span></h3>
+        <form class="form-row" id="formOrderItem">
+          <div class="field"><label>Sản phẩm</label>
+            <input autocomplete="off" id="odProductInput" data-sdd-list="odProductDropdown" placeholder="Gõ SKU/tên...">
+            <div id="odProductDropdown" class="hidden sdd-dropdown" data-sdd-dropdown></div>
+          </div>
+          <div class="field"><label>Số lượng</label><input type="number" step="0.01" required id="odQty" style="min-width:90px"></div>
+          <div class="field"><label>Đơn giá</label><input type="number" step="0.01" required id="odPrice" style="min-width:120px"></div>
+          <div class="field"><label>% CK</label><input type="number" step="0.1" id="odDiscount" value="0" style="min-width:70px"></div>
+          <button class="btn" type="submit">Thêm dòng hàng</button>
+        </form>
+        <table><thead><tr><th>SKU</th><th>Sản phẩm</th><th>SL</th><th>Đơn giá</th><th>%CK</th><th>Thành tiền</th><th></th></tr></thead><tbody id="tblOrderItems"></tbody></table>
+        <div class="form-row" style="margin-top:10px">
+          <button class="btn" id="btnSubmitOrder" type="button">Gửi duyệt (giữ hàng)</button>
+          <button class="btn danger" id="btnCancelOrder" type="button">Hủy đơn</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Danh sách đơn hàng</h3>
+        <table><thead><tr><th>Mã đơn</th><th>Loại</th><th>Khách hàng</th><th>Kho</th><th>Tổng tiền</th><th>Trạng thái</th><th>Hạn giữ hàng</th><th></th></tr></thead><tbody id="tblOrders"></tbody></table>
+      </div>
+    </div>
+
     <div class="panel" id="panel-hr">
       <h2>Vị trí &amp; Nhân viên</h2>
       <div class="card">
@@ -357,6 +523,11 @@ const PERM_KEYS = [
   { key: 'warehouseManage', label: 'Quản lý kho hàng' },
   { key: 'employeeManage', label: 'Quản lý vị trí/nhân viên/tài khoản' },
   { key: 'systemLogView', label: 'Xem nhật ký hệ thống' },
+  { key: 'dealerManage', label: 'Quản lý đại lý' },
+  { key: 'dealerCreditOverride', label: 'Đổi hạng/hạn mức/số ngày công nợ đại lý (hạn chế)' },
+  { key: 'projectManage', label: 'Quản lý khách hàng dự án' },
+  { key: 'salesOrderCreate', label: 'Tạo/gửi duyệt/hủy đơn hàng' },
+  { key: 'salesConfigManage', label: 'Quản lý kênh bán hàng' },
 ];
 
 let CURRENT_USER = null;
@@ -497,9 +668,15 @@ async function enterApp() {
     const health = await api('/health');
     document.getElementById('whoVersion').textContent = health && health.version ? `(v${health.version})` : '';
   } catch {}
+  document.getElementById('dealerCreditFields').style.display =
+    (CURRENT_USER.isAdmin || CURRENT_USER.perms.dealerCreditOverride) ? '' : 'none';
   buildPermsCheckboxes();
   await loadAllCatalogData();
-  await Promise.all([loadInventory(), loadPricing(), loadHr(), loadUsers().catch(() => {}), loadConfig().catch(() => {}), loadLogs().catch(() => {})]);
+  await Promise.all([loadPricing(), loadHr()]);
+  await Promise.all([
+    loadInventory(), loadDealers(), loadProjects(), loadSales(),
+    loadUsers().catch(() => {}), loadConfig().catch(() => {}), loadLogs().catch(() => {}),
+  ]);
   updateDashboardStats();
 }
 
@@ -779,6 +956,265 @@ document.getElementById('formEmployee').addEventListener('submit', async (e) => 
     e.target.reset(); sddClear('empPositionInput');
     toast('Đã thêm nhân viên');
     await loadHr();
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+// ---------------------------------------------------------------------------
+// Đại lý (Module 4)
+// ---------------------------------------------------------------------------
+async function loadDealers() {
+  const [dealers, employees] = await Promise.all([api('/dealers'), api('/employees')]);
+  CACHE.dealers = dealers;
+  sddSetOptions('dealerRegionDropdown', CACHE.regions.map((r) => ({ id: r.RegionId, label: r.RegionName })));
+  sddSetOptions('dealerSalesDropdown', employees.map((e) => ({ id: e.EmployeeId, label: e.FullName, sub: e.EmployeeCode })));
+  sddSetOptions('dealerTierDropdown', CACHE.tiers.map((t) => ({ id: t.TierId, label: t.TierName })));
+  sddSetOptions('ordDealerDropdown', dealers.map((d) => ({ id: d.DealerId, label: d.DealerName, sub: d.DealerCode })));
+
+  document.getElementById('tblDealers').innerHTML = dealers.map((d) => `
+    <tr><td>${d.DealerCode}</td><td>${d.DealerName}</td><td>${d.TierName || ''}</td>
+    <td>${Number(d.EffectiveCreditLimit).toLocaleString('vi-VN')}</td><td>${d.EffectivePaymentTermDays}</td>
+    <td>${d.RegionName || ''}</td><td>${d.AssignedSalesName || ''}</td>
+    <td><span class="badge ${d.Status === 'ACTIVE' ? 'ok' : 'off'}">${d.Status}</span></td></tr>`).join('');
+
+  try {
+    const candidates = await api('/dealers/credit-review-candidates');
+    document.getElementById('tblCreditCandidates').innerHTML = candidates.map((c) => `
+      <tr><td>${c.DealerCode}</td><td>${c.DealerName}</td><td>${c.OnboardedAt.substring(0, 10)}</td>
+      <td>${Number(c.CurrentLimit).toLocaleString('vi-VN')}</td>
+      <td>${c.LastReviewDate ? c.LastReviewDate.substring(0, 10) : 'Chưa từng xét'}</td></tr>`).join('');
+  } catch { /* không có quyền dealerCreditOverride — bỏ qua, bảng để trống */ }
+}
+
+document.getElementById('formDealer').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('/dealers', { method: 'POST', body: {
+      dealerCode: document.getElementById('dealerCode').value.trim(),
+      dealerName: document.getElementById('dealerName').value.trim(),
+      taxCode: document.getElementById('dealerTaxCode').value.trim(),
+      regionId: sddValue('dealerRegionInput'),
+      assignedSalesId: sddValue('dealerSalesInput'),
+      tierId: sddValue('dealerTierInput'),
+      creditLimitOverride: document.getElementById('dealerCreditOverride').value || null,
+      paymentTermDaysOverride: document.getElementById('dealerTermOverride').value || null,
+    }});
+    e.target.reset(); sddClear('dealerRegionInput'); sddClear('dealerSalesInput'); sddClear('dealerTierInput');
+    toast('Đã thêm đại lý');
+    await loadDealers();
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+// ---------------------------------------------------------------------------
+// Khách hàng dự án (Module 5)
+// ---------------------------------------------------------------------------
+let currentProjectId = null;
+
+async function loadProjects() {
+  const [projects, employees] = await Promise.all([api('/projects'), api('/employees')]);
+  CACHE.projects = projects;
+  sddSetOptions('projSalesDropdown', employees.map((e) => ({ id: e.EmployeeId, label: e.FullName, sub: e.EmployeeCode })));
+  sddSetOptions('ordProjectDropdown', projects.map((p) => ({ id: p.ProjectId, label: p.ProjectName, sub: p.EndCustomerName })));
+
+  document.getElementById('tblProjects').innerHTML = projects.map((p) => `
+    <tr><td>${p.ProjectName}</td><td>${p.EndCustomerName || ''}</td>
+    <td>${p.EstimatedValue != null ? Number(p.EstimatedValue).toLocaleString('vi-VN') : ''}</td>
+    <td>${p.Stage}</td><td>${p.AssignedSalesName || ''}</td>
+    <td><button class="btn secondary" data-view-project="${p.ProjectId}" data-name="${p.ProjectName}">Báo giá</button></td></tr>`).join('');
+
+  document.querySelectorAll('[data-view-project]').forEach((btn) =>
+    btn.addEventListener('click', () => openProjectQuotes(btn.dataset.viewProject, btn.dataset.name)));
+}
+
+async function openProjectQuotes(id, name) {
+  currentProjectId = id;
+  document.getElementById('quotesCard').classList.remove('hidden');
+  document.getElementById('quotesProjectName').textContent = name;
+  const quotes = await api(`/projects/${id}/quotes`);
+  document.getElementById('tblQuotes').innerHTML = quotes.map((q) => `
+    <tr><td>v${q.QuoteVersion}</td><td>${Number(q.TotalAmount).toLocaleString('vi-VN')}</td><td>${q.Status}</td>
+    <td><button class="btn secondary" data-win-quote="${q.QuoteId}">Đánh dấu thắng</button></td></tr>`).join('');
+  document.querySelectorAll('[data-win-quote]').forEach((btn) => btn.addEventListener('click', async () => {
+    try {
+      await api(`/projects/${currentProjectId}/quotes/${btn.dataset.winQuote}`, { method: 'PUT', body: { status: 'WON' } });
+      toast('Đã cập nhật trạng thái báo giá');
+      await openProjectQuotes(currentProjectId, name);
+    } catch (err) { toast(err.message, 'err'); }
+  }));
+}
+
+document.getElementById('formProject').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('/projects', { method: 'POST', body: {
+      projectName: document.getElementById('projName').value.trim(),
+      endCustomerName: document.getElementById('projCustomer').value.trim(),
+      estimatedValue: document.getElementById('projValue').value || null,
+      stage: document.getElementById('projStage').value,
+      assignedSalesId: sddValue('projSalesInput'),
+    }});
+    e.target.reset(); sddClear('projSalesInput');
+    toast('Đã thêm dự án');
+    await loadProjects();
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+document.getElementById('formQuote').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!currentProjectId) return;
+  try {
+    await api(`/projects/${currentProjectId}/quotes`, { method: 'POST', body: {
+      totalAmount: Number(document.getElementById('quoteAmount').value),
+    }});
+    e.target.reset();
+    toast('Đã thêm phiên bản báo giá');
+    await openProjectQuotes(currentProjectId, document.getElementById('quotesProjectName').textContent);
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+// ---------------------------------------------------------------------------
+// Bán hàng đa kênh (Module 6)
+// ---------------------------------------------------------------------------
+let currentOrderId = null;
+let currentOrderDealerId = null;
+
+const ORDER_STATUS_LABEL = {
+  DRAFT: 'NHÁP', PENDING_APPROVAL: 'CHỜ DUYỆT (đã giữ hàng)', APPROVED: 'ĐÃ DUYỆT',
+  FULFILLED: 'ĐÃ XUẤT KHO', CANCELLED: 'ĐÃ HỦY', CANCELLED_EXPIRED: 'HỦY DO HẾT HẠN GIỮ HÀNG',
+};
+
+async function loadSales() {
+  const [channels, orders] = await Promise.all([api('/sales/channels'), api('/sales/orders')]);
+  CACHE.channels = channels;
+  sddSetOptions('ordChannelDropdown', channels.map((c) => ({ id: c.ChannelId, label: c.ChannelName })));
+  sddSetOptions('ordWarehouseDropdown', CACHE.warehouses.map((w) => ({ id: w.WarehouseId, label: w.WarehouseName, sub: w.WarehouseCode })));
+  sddSetOptions('odProductDropdown', CACHE.products.map((p) => ({ id: p.ProductId, label: p.ProductName, sub: p.SKU })));
+
+  document.getElementById('tblChannels').innerHTML = channels.map((c) => `
+    <tr><td>${c.ChannelName}</td><td>${c.ChannelType}</td><td>${c.DefaultReservationHours}</td></tr>`).join('');
+
+  document.getElementById('tblOrders').innerHTML = orders.map((o) => `
+    <tr><td>${o.OrderCode}</td><td>${o.OrderType}/${o.CustomerType}</td>
+    <td>${o.DealerName || o.ProjectName || o.CustomerName || ''}</td><td>${o.WarehouseName}</td>
+    <td>${Number(o.TotalAmount).toLocaleString('vi-VN')}</td>
+    <td><span class="badge ${o.Status.startsWith('CANCELLED') ? 'off' : 'ok'}">${ORDER_STATUS_LABEL[o.Status] || o.Status}</span></td>
+    <td>${o.ReservationExpiresAt ? new Date(o.ReservationExpiresAt).toLocaleString('vi-VN') : ''}</td>
+    <td><button class="btn secondary" data-view-order="${o.OrderId}">Xem</button></td></tr>`).join('');
+
+  document.querySelectorAll('[data-view-order]').forEach((btn) => btn.addEventListener('click', () => openOrderDetail(btn.dataset.viewOrder)));
+}
+
+document.getElementById('formChannel').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await api('/sales/channels', { method: 'POST', body: {
+      channelName: document.getElementById('chName').value.trim(),
+      channelType: document.getElementById('chType').value,
+      defaultReservationHours: Number(document.getElementById('chHours').value),
+    }});
+    e.target.reset();
+    toast('Đã thêm kênh bán hàng');
+    await loadSales();
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+document.getElementById('ordCustomerType').addEventListener('change', (e) => {
+  document.getElementById('ordDealerRow').classList.toggle('hidden', e.target.value !== 'DEALER');
+  document.getElementById('ordProjectRow').classList.toggle('hidden', e.target.value !== 'PROJECT');
+  document.getElementById('ordRetailRow').classList.toggle('hidden', e.target.value !== 'RETAIL');
+});
+
+document.getElementById('formOrder').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    const customerType = document.getElementById('ordCustomerType').value;
+    const order = await api('/sales/orders', { method: 'POST', body: {
+      orderType: document.getElementById('ordType').value,
+      customerType,
+      channelId: sddValue('ordChannelInput'),
+      warehouseId: sddValue('ordWarehouseInput'),
+      dealerId: customerType === 'DEALER' ? sddValue('ordDealerInput') : null,
+      projectId: customerType === 'PROJECT' ? sddValue('ordProjectInput') : null,
+      customerName: document.getElementById('ordCustomerName').value.trim(),
+      customerPhone: document.getElementById('ordCustomerPhone').value.trim(),
+      customerAddress: document.getElementById('ordCustomerAddress').value.trim(),
+    }});
+    e.target.reset(); sddClear('ordChannelInput'); sddClear('ordWarehouseInput'); sddClear('ordDealerInput'); sddClear('ordProjectInput');
+    toast(`Đã tạo đơn ${order.OrderCode} (NHÁP) — thêm sản phẩm rồi Gửi duyệt`);
+    await loadSales();
+    await openOrderDetail(order.OrderId);
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+async function openOrderDetail(id) {
+  const order = await api(`/sales/orders/${id}`);
+  currentOrderId = order.OrderId;
+  currentOrderDealerId = order.DealerId;
+  document.getElementById('orderDetailCard').classList.remove('hidden');
+  document.getElementById('odCode').textContent = order.OrderCode;
+  const statusBadge = document.getElementById('odStatus');
+  statusBadge.textContent = ORDER_STATUS_LABEL[order.Status] || order.Status;
+  statusBadge.className = 'badge ' + (order.Status.startsWith('CANCELLED') ? 'off' : 'ok');
+
+  document.getElementById('tblOrderItems').innerHTML = order.items.map((i) => `
+    <tr><td>${i.SKU}</td><td>${i.ProductName}</td><td>${i.Quantity}</td>
+    <td>${Number(i.UnitPrice).toLocaleString('vi-VN')}</td><td>${i.DiscountPct}%</td>
+    <td>${Number(i.LineTotal).toLocaleString('vi-VN')}</td>
+    <td>${order.Status === 'DRAFT' ? `<button class="btn danger" data-del-item="${i.OrderItemId}">Xóa</button>` : ''}</td></tr>`).join('');
+  document.querySelectorAll('[data-del-item]').forEach((btn) => btn.addEventListener('click', async () => {
+    try {
+      await api(`/sales/orders/${currentOrderId}/items/${btn.dataset.delItem}`, { method: 'DELETE' });
+      await openOrderDetail(currentOrderId);
+    } catch (err) { toast(err.message, 'err'); }
+  }));
+
+  const isDraft = order.Status === 'DRAFT';
+  document.getElementById('formOrderItem').style.display = isDraft ? '' : 'none';
+  document.getElementById('btnSubmitOrder').style.display = isDraft ? '' : 'none';
+  document.getElementById('btnCancelOrder').style.display = ['DRAFT', 'PENDING_APPROVAL', 'APPROVED'].includes(order.Status) ? '' : 'none';
+}
+
+document.getElementById('odProductInput').addEventListener('sdd-select', async (e) => {
+  try {
+    const price = await api(`/sales/price-lookup?productId=${e.detail.id}${currentOrderDealerId ? `&dealerId=${currentOrderDealerId}` : ''}`);
+    if (price) {
+      document.getElementById('odPrice').value = price.ListPrice;
+      document.getElementById('odDiscount').max = price.MaxDiscountPct;
+    }
+  } catch { /* không tra được giá — người dùng tự nhập đơn giá */ }
+});
+
+document.getElementById('formOrderItem').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!currentOrderId) return;
+  try {
+    await api(`/sales/orders/${currentOrderId}/items`, { method: 'POST', body: {
+      productId: sddValue('odProductInput'),
+      quantity: Number(document.getElementById('odQty').value),
+      unitPrice: Number(document.getElementById('odPrice').value),
+      discountPct: Number(document.getElementById('odDiscount').value || 0),
+    }});
+    e.target.reset(); sddClear('odProductInput');
+    await openOrderDetail(currentOrderId);
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+document.getElementById('btnSubmitOrder').addEventListener('click', async () => {
+  if (!currentOrderId) return;
+  try {
+    await api(`/sales/orders/${currentOrderId}/submit`, { method: 'POST' });
+    toast('Đã gửi duyệt — đã giữ hàng theo đúng số lượng đơn');
+    await openOrderDetail(currentOrderId);
+    await Promise.all([loadSales(), loadInventory()]);
+  } catch (err) { toast(err.message, 'err'); }
+});
+
+document.getElementById('btnCancelOrder').addEventListener('click', async () => {
+  if (!currentOrderId) return;
+  try {
+    await api(`/sales/orders/${currentOrderId}/cancel`, { method: 'POST' });
+    toast('Đã hủy đơn hàng, nhả tồn kho đã giữ (nếu có)');
+    await openOrderDetail(currentOrderId);
+    await Promise.all([loadSales(), loadInventory()]);
   } catch (err) { toast(err.message, 'err'); }
 });
 

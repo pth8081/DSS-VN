@@ -14,9 +14,27 @@ liệu gốc đã cung cấp: `thiet_ke_he_thong_phan_phoi_cntt.md`.
 - Hệ thống cơ bản: Vị trí (seat-based) & Nhân viên, Tài khoản & Phân quyền,
   Nhật ký hệ thống, Cấu hình chung
 
+**Giai đoạn 2 — Khách hàng & Bán hàng (ĐÃ CÓ trong code):**
+- Đại lý: hồ sơ đại lý, hạng đại lý + hạn mức/số ngày công nợ (mặc định theo
+  hạng hoặc override riêng — tách quyền `dealerManage` vs `dealerCreditOverride`
+  vì đây là quyền hạn chế), lịch sử xét duyệt hạn mức, danh sách đại lý đủ
+  điều kiện xét tăng hạn mức (onboard ≥ 3 tháng)
+- Khách hàng dự án: hồ sơ dự án theo giai đoạn (Lead→...→Closed), báo giá
+  nhiều phiên bản
+- Bán hàng đa kênh: kênh bán hàng (Website/Cổng đại lý/Sale trực tiếp — mỗi
+  kênh 1 thời gian giữ hàng mặc định riêng), tạo đơn (NHÁP) → thêm dòng hàng
+  (tự tra giá theo đúng hạng đại lý, 1 nguồn giá duy nhất cho mọi kênh) → gửi
+  duyệt (giữ hàng thật qua `ReserveStock`) → hủy (nhả hàng qua `ReleaseStock`);
+  cron quét mỗi giờ tự hủy đơn CHỜ DUYỆT quá hạn giữ hàng
+  (`server/jobs/expireReservations.js`)
+- **Giới hạn đã biết**: bước CHỜ DUYỆT → ĐÃ DUYỆT → ĐÃ XUẤT KHO (ma trận phê
+  duyệt thật + phát sinh công nợ) CHƯA có — thuộc Module 7+8, Giai đoạn 3.
+  Cột `IsStandardDeal`/`CreditCheckedAt`/`CreditAvailableAtCheck` đã có sẵn
+  trong bảng `SalesOrders` nhưng còn để trống ở Giai đoạn 2.
+
 **Các giai đoạn sau (CHƯA triển khai — xem lộ trình Mục 14 tài liệu thiết kế):**
-Đại lý, Khách hàng dự án, Bán hàng đa kênh, Ma trận phê duyệt, Công nợ đại lý +
-API kế toán, Hợp đồng & Thanh toán, CRM/Đội Sale, Báo cáo tổng hợp.
+Ma trận phê duyệt, Công nợ đại lý + API kế toán, Hợp đồng & Thanh toán,
+CRM/Đội Sale, Báo cáo tổng hợp.
 
 ## Cấu trúc thư mục
 
@@ -30,7 +48,12 @@ server/
 │   ├── employees.js        # Vị trí, Nhân viên, Tài khoản người dùng
 │   ├── catalog.js          # Nhóm sản phẩm, Sản phẩm, Kho, Bảng giá, Hạng đại lý, Khu vực
 │   ├── inventory.js        # Tồn kho, nhập/điều chỉnh/chuyển kho, lịch sử giao dịch
-│   └── system.js           # Nhật ký hệ thống, Cấu hình chung
+│   ├── system.js           # Nhật ký hệ thống, Cấu hình chung
+│   ├── dealers.js          # Đại lý, hạn mức/công nợ, lịch sử xét duyệt hạn mức
+│   ├── projects.js         # Khách hàng dự án, báo giá
+│   └── sales.js            # Kênh bán hàng, đơn hàng đa kênh, tra giá theo hạng
+├── jobs/
+│   └── expireReservations.js   # Cron giờ: tự hủy đơn CHỜ DUYỆT quá hạn giữ hàng
 ├── sql/
 │   └── schema.sql          # Script tạo database + toàn bộ bảng/stored procedure + seed mặc định
 ├── public/

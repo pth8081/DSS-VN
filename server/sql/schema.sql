@@ -445,6 +445,242 @@ END
 GO
 
 -- ============================================================================
+-- MODULE 4: QUẢN LÝ ĐẠI LÝ (Dealer Management) — Giai đoạn 2
+-- ============================================================================
+
+IF OBJECT_ID('dbo.Dealers') IS NULL
+BEGIN
+    CREATE TABLE dbo.Dealers (
+        DealerId                INT IDENTITY PRIMARY KEY,
+        DealerCode               NVARCHAR(30) UNIQUE NOT NULL,
+        DealerName               NVARCHAR(300) NOT NULL,
+        TaxCode                  NVARCHAR(20) NULL UNIQUE,
+        TierId                   INT NULL REFERENCES dbo.DealerTiers(TierId),
+        CreditLimitOverride      DECIMAL(18,2) NULL,
+        PaymentTermDaysOverride  INT NULL,
+        RegionId                 INT NULL REFERENCES dbo.Regions(RegionId),
+        AssignedSalesId          INT NULL REFERENCES dbo.Employees(EmployeeId),
+        OnboardedAt              DATE NOT NULL DEFAULT CAST(SYSUTCDATETIME() AS DATE),
+        Status                   NVARCHAR(20) NOT NULL DEFAULT 'ACTIVE',   -- ACTIVE / SUSPENDED / BLACKLIST
+        CreatedAt                DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+    );
+END
+GO
+
+-- Lịch sử xét duyệt hạn mức — phục vụ quy trình tăng hạn mức định kỳ (Mục 15.1
+-- tài liệu thiết kế). Đổi TierId/CreditLimitOverride nên đi kèm 1 dòng ở đây
+-- làm bằng chứng quyết định — ma trận phê duyệt thật cho việc đổi hạn mức sẽ
+-- nối vào Module 7 (Giai đoạn 3), hiện tại (Giai đoạn 2) chỉ ghi nhận quyết
+-- định, chưa có luồng duyệt nhiều cấp.
+IF OBJECT_ID('dbo.DealerCreditReviews') IS NULL
+BEGIN
+    CREATE TABLE dbo.DealerCreditReviews (
+        ReviewId            INT IDENTITY PRIMARY KEY,
+        DealerId             INT NOT NULL REFERENCES dbo.Dealers(DealerId),
+        ReviewDate           DATE NOT NULL DEFAULT CAST(SYSUTCDATETIME() AS DATE),
+        OldLimit             DECIMAL(18,2) NOT NULL,
+        ProposedLimit        DECIMAL(18,2) NOT NULL,
+        OnTimePaymentRatio   DECIMAL(5,2) NULL,
+        Decision             NVARCHAR(20) NOT NULL DEFAULT 'DEFERRED',   -- APPROVED / REJECTED / DEFERRED
+        ApprovedBy           NVARCHAR(100) NULL,
+        CreatedAt            DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+    );
+END
+GO
+
+-- ============================================================================
+-- MODULE 5: QUẢN LÝ KHÁCH HÀNG DỰ ÁN (Project Customer Management) — Giai đoạn 2
+-- ============================================================================
+
+IF OBJECT_ID('dbo.Projects') IS NULL
+BEGIN
+    CREATE TABLE dbo.Projects (
+        ProjectId          INT IDENTITY PRIMARY KEY,
+        ProjectName         NVARCHAR(300) NOT NULL,
+        EndCustomerName      NVARCHAR(300) NULL,
+        EstimatedValue       DECIMAL(18,2) NULL,
+        Stage                NVARCHAR(30) NOT NULL DEFAULT 'LEAD',   -- LEAD/QUALIFIED/QUOTED/NEGOTIATION/WON/LOST/IMPLEMENTING/CLOSED
+        ExpectedCloseDate    DATE NULL,
+        CompetitorNotes      NVARCHAR(1000) NULL,
+        AssignedSalesId      INT NULL REFERENCES dbo.Employees(EmployeeId),
+        LostReason           NVARCHAR(300) NULL,
+        CreatedAt            DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+    );
+END
+GO
+
+IF OBJECT_ID('dbo.ProjectQuotes') IS NULL
+BEGIN
+    CREATE TABLE dbo.ProjectQuotes (
+        QuoteId       INT IDENTITY PRIMARY KEY,
+        ProjectId      INT NOT NULL REFERENCES dbo.Projects(ProjectId),
+        QuoteVersion   INT NOT NULL,
+        TotalAmount    DECIMAL(18,2) NOT NULL DEFAULT 0,
+        Status         NVARCHAR(20) NOT NULL DEFAULT 'DRAFT',
+        CreatedAt      DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME(),
+        CONSTRAINT UQ_ProjectQuotes UNIQUE (ProjectId, QuoteVersion)
+    );
+END
+GO
+
+-- ============================================================================
+-- MODULE 6: BÁN HÀNG ĐA KÊNH (Omnichannel Sales) — Giai đoạn 2
+--
+-- Phạm vi Giai đoạn 2: tạo đơn (NHÁP) → gửi duyệt (giữ hàng thật qua
+-- ReserveStock, tính tổng tiền) → hủy (thủ công hoặc tự động hết hạn giữ
+-- hàng). Bước PENDING_APPROVAL → APPROVED → FULFILLED (xuất kho thật + phát
+-- sinh công nợ) thuộc Module 7+8, triển khai ở Giai đoạn 3 — cột IsStandardDeal/
+-- CreditCheckedAt/CreditAvailableAtCheck đã có sẵn trong bảng nhưng CHƯA được
+-- điền ở Giai đoạn 2 (giá trị NULL).
+-- ============================================================================
+
+IF OBJECT_ID('dbo.SalesChannels') IS NULL
+BEGIN
+    CREATE TABLE dbo.SalesChannels (
+        ChannelId                INT IDENTITY PRIMARY KEY,
+        ChannelName               NVARCHAR(100) NOT NULL,
+        ChannelType                NVARCHAR(20) NOT NULL,   -- DIRECT_SALES / ECOMMERCE / MARKETPLACE / DEALER_PORTAL
+        DefaultReservationHours    DECIMAL(6,2) NOT NULL DEFAULT 72,
+        IsActive                   BIT NOT NULL DEFAULT 1
+    );
+END
+GO
+
+IF OBJECT_ID('dbo.SalesOrders') IS NULL
+BEGIN
+    CREATE TABLE dbo.SalesOrders (
+        OrderId                   BIGINT IDENTITY PRIMARY KEY,
+        OrderCode                  NVARCHAR(30) UNIQUE NOT NULL,
+        OrderType                  NVARCHAR(10) NOT NULL,   -- B2B / B2C
+        ChannelId                  INT NULL REFERENCES dbo.SalesChannels(ChannelId),
+        CustomerType                NVARCHAR(20) NOT NULL,   -- DEALER / PROJECT / RETAIL
+        DealerId                   INT NULL REFERENCES dbo.Dealers(DealerId),
+        ProjectId                  INT NULL REFERENCES dbo.Projects(ProjectId),
+        CustomerName                NVARCHAR(200) NULL,      -- dùng cho CustomerType='RETAIL' (không có hồ sơ Dealer/Project)
+        CustomerPhone               NVARCHAR(30) NULL,
+        CustomerAddress             NVARCHAR(300) NULL,
+        WarehouseId                 INT NOT NULL REFERENCES dbo.Warehouses(WarehouseId),
+        Status                      NVARCHAR(20) NOT NULL DEFAULT 'DRAFT',
+        -- DRAFT/PENDING_APPROVAL/APPROVED/FULFILLED/CANCELLED/CANCELLED_EXPIRED
+        TotalAmount                 DECIMAL(18,2) NOT NULL DEFAULT 0,
+        PaymentTermDays             INT NOT NULL DEFAULT 0,
+        RequiresCreditCheck         BIT NOT NULL DEFAULT 1,   -- 0 cho Retail trả trước (Mục 15.5)
+        IsStandardDeal               BIT NULL,                -- điền ở Giai đoạn 3 (Module 7)
+        ReservationExpiresAt         DATETIME2 NULL,
+        CreditCheckedAt              DATETIME2 NULL,          -- điền ở Giai đoạn 3 (Module 7)
+        CreditAvailableAtCheck       DECIMAL(18,2) NULL,       -- điền ở Giai đoạn 3 (Module 7)
+        CreatedBy                    NVARCHAR(100) NULL,
+        CreatedAt                    DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME()
+    );
+END
+GO
+
+IF OBJECT_ID('dbo.SalesOrderItems') IS NULL
+BEGIN
+    CREATE TABLE dbo.SalesOrderItems (
+        OrderItemId    BIGINT IDENTITY PRIMARY KEY,
+        OrderId         BIGINT NOT NULL REFERENCES dbo.SalesOrders(OrderId),
+        ProductId       INT NOT NULL REFERENCES dbo.Products(ProductId),
+        Quantity        DECIMAL(18,2) NOT NULL,
+        UnitPrice       DECIMAL(18,2) NOT NULL,
+        DiscountPct     DECIMAL(5,2) NOT NULL DEFAULT 0,
+        LineTotal       AS (CAST(Quantity * UnitPrice * (1 - DiscountPct / 100.0) AS DECIMAL(18,2))) PERSISTED
+    );
+END
+GO
+
+-- Gửi duyệt đơn hàng: giữ hàng thật cho TỪNG dòng sản phẩm (qua ReserveStock —
+-- dùng lại đúng 1 cơ chế giữ hàng cho mọi kênh, nguyên tắc Omnichannel bắt
+-- buộc ở Module 6), tính lại tổng tiền, đặt hạn giữ hàng theo kênh.
+CREATE OR ALTER PROCEDURE dbo.SubmitSalesOrder
+    @OrderId BIGINT, @ReservationHours DECIMAL(6,2)
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DECLARE @Status NVARCHAR(20), @WarehouseId INT;
+    SELECT @Status = Status, @WarehouseId = WarehouseId FROM dbo.SalesOrders WHERE OrderId = @OrderId;
+    IF @Status IS NULL THROW 50030, N'Không tìm thấy đơn hàng', 1;
+    IF @Status <> 'DRAFT' THROW 50031, N'Chỉ có thể gửi duyệt đơn hàng đang ở trạng thái NHÁP', 1;
+    IF NOT EXISTS (SELECT 1 FROM dbo.SalesOrderItems WHERE OrderId = @OrderId)
+        THROW 50032, N'Đơn hàng chưa có sản phẩm nào', 1;
+
+    BEGIN TRANSACTION;
+    BEGIN TRY
+        DECLARE @ProductId INT, @Qty DECIMAL(18,2);
+        DECLARE item_cursor CURSOR LOCAL FAST_FORWARD FOR
+            SELECT ProductId, Quantity FROM dbo.SalesOrderItems WHERE OrderId = @OrderId;
+        OPEN item_cursor;
+        FETCH NEXT FROM item_cursor INTO @ProductId, @Qty;
+        WHILE @@FETCH_STATUS = 0
+        BEGIN
+            EXEC dbo.ReserveStock @ProductId=@ProductId, @WarehouseId=@WarehouseId, @Qty=@Qty,
+                 @RefType='SalesOrder', @RefId=@OrderId;
+            FETCH NEXT FROM item_cursor INTO @ProductId, @Qty;
+        END
+        CLOSE item_cursor; DEALLOCATE item_cursor;
+
+        DECLARE @Total DECIMAL(18,2);
+        SELECT @Total = SUM(LineTotal) FROM dbo.SalesOrderItems WHERE OrderId = @OrderId;
+
+        UPDATE dbo.SalesOrders
+        SET Status = 'PENDING_APPROVAL', TotalAmount = @Total,
+            ReservationExpiresAt = DATEADD(MINUTE, CAST(@ReservationHours * 60 AS INT), SYSUTCDATETIME())
+        WHERE OrderId = @OrderId;
+
+        COMMIT;
+    END TRY
+    BEGIN CATCH
+        IF XACT_STATE() <> 0 ROLLBACK;
+        THROW;
+    END CATCH
+END
+GO
+
+-- Hủy đơn (thủ công @Expired=0, hoặc tự động do hết hạn giữ hàng @Expired=1
+-- — xem server/jobs/expireReservations.js) — nhả lại đúng số lượng đã giữ.
+CREATE OR ALTER PROCEDURE dbo.CancelSalesOrder
+    @OrderId BIGINT, @Expired BIT = 0
+AS
+BEGIN
+    SET NOCOUNT ON;
+    DECLARE @Status NVARCHAR(20), @WarehouseId INT;
+    SELECT @Status = Status, @WarehouseId = WarehouseId FROM dbo.SalesOrders WHERE OrderId = @OrderId;
+    IF @Status IS NULL THROW 50033, N'Không tìm thấy đơn hàng', 1;
+    IF @Status NOT IN ('DRAFT','PENDING_APPROVAL','APPROVED')
+        THROW 50034, N'Đơn hàng ở trạng thái này không thể hủy', 1;
+
+    BEGIN TRANSACTION;
+    BEGIN TRY
+        IF @Status IN ('PENDING_APPROVAL','APPROVED')
+        BEGIN
+            DECLARE @ProductId INT, @Qty DECIMAL(18,2);
+            DECLARE item_cursor CURSOR LOCAL FAST_FORWARD FOR
+                SELECT ProductId, Quantity FROM dbo.SalesOrderItems WHERE OrderId = @OrderId;
+            OPEN item_cursor;
+            FETCH NEXT FROM item_cursor INTO @ProductId, @Qty;
+            WHILE @@FETCH_STATUS = 0
+            BEGIN
+                EXEC dbo.ReleaseStock @ProductId=@ProductId, @WarehouseId=@WarehouseId, @Qty=@Qty,
+                     @RefType='SalesOrder', @RefId=@OrderId;
+                FETCH NEXT FROM item_cursor INTO @ProductId, @Qty;
+            END
+            CLOSE item_cursor; DEALLOCATE item_cursor;
+        END
+
+        UPDATE dbo.SalesOrders
+        SET Status = CASE WHEN @Expired = 1 THEN 'CANCELLED_EXPIRED' ELSE 'CANCELLED' END
+        WHERE OrderId = @OrderId;
+
+        COMMIT;
+    END TRY
+    BEGIN CATCH
+        IF XACT_STATE() <> 0 ROLLBACK;
+        THROW;
+    END CATCH
+END
+GO
+
+-- ============================================================================
 -- SEED DỮ LIỆU MẶC ĐỊNH (chỉ chạy nếu bảng rỗng — an toàn khi chạy lại script)
 -- ============================================================================
 
@@ -453,7 +689,9 @@ BEGIN
     INSERT INTO dbo.Positions (PositionCode, PositionName, Department, DisplayOrder) VALUES
     (N'ADMIN', N'Quản trị hệ thống', N'IT', 0),
     (N'WAREHOUSE_STAFF', N'Nhân viên kho', N'Kho vận', 1),
-    (N'WAREHOUSE_MANAGER', N'Trưởng kho', N'Kho vận', 2);
+    (N'WAREHOUSE_MANAGER', N'Trưởng kho', N'Kho vận', 2),
+    (N'SALES_STAFF', N'Nhân viên kinh doanh', N'Kinh doanh', 3),
+    (N'SALES_MANAGER', N'Trưởng phòng kinh doanh', N'Kinh doanh', 4);
 END
 GO
 
@@ -509,5 +747,15 @@ BEGIN
     INSERT INTO dbo.AppConfig (ConfigKey, ConfigValue) VALUES
     (N'UPLOAD_MAX_MB', N'20'),
     (N'NEW_DEALER_SAFE_LIMIT', N'500000000');
+END
+GO
+
+-- Thời gian giữ hàng mặc định theo kênh (Mục 15.4 tài liệu thiết kế).
+IF NOT EXISTS (SELECT 1 FROM dbo.SalesChannels)
+BEGIN
+    INSERT INTO dbo.SalesChannels (ChannelName, ChannelType, DefaultReservationHours) VALUES
+    (N'Website / Marketplace B2C', 'ECOMMERCE', 0.5),
+    (N'Cổng đại lý tự đặt (B2B)', 'DEALER_PORTAL', 72),
+    (N'Sale trực tiếp tạo hộ', 'DIRECT_SALES', 72);
 END
 GO

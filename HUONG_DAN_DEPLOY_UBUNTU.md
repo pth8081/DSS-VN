@@ -201,6 +201,12 @@ Các biến còn lại trong `.env.example` (`PORT`, `DB_ENCRYPT`,
 định hợp lý sẵn trong code — chỉ cần điền khi bạn thực sự cần đổi khác mặc
 định.
 
+`ACCOUNTING_API_KEY`/`ACCOUNTING_API_IP_ALLOWLIST` (Module 8 — Giai đoạn 3)
+chỉ cần điền nếu phần mềm kế toán bên ngoài công ty cần gọi ngược vào
+`POST /api/external/payment-confirmations` để xác nhận đã thu tiền đại lý —
+bỏ trống `ACCOUNTING_API_KEY` thì endpoint này tự trả lỗi 503, không ảnh
+hưởng gì tới phần còn lại của hệ thống.
+
 > ⚠️ Không commit file `.env` lên Git — chứa mật khẩu SQL Server và khoá
 > `JWT_SECRET`. File `.gitignore` trong `server/` đã loại trừ sẵn `.env`.
 

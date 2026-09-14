@@ -27,14 +27,33 @@ liệu gốc đã cung cấp: `thiet_ke_he_thong_phan_phoi_cntt.md`.
   duyệt (giữ hàng thật qua `ReserveStock`) → hủy (nhả hàng qua `ReleaseStock`);
   cron quét mỗi giờ tự hủy đơn CHỜ DUYỆT quá hạn giữ hàng
   (`server/jobs/expireReservations.js`)
-- **Giới hạn đã biết**: bước CHỜ DUYỆT → ĐÃ DUYỆT → ĐÃ XUẤT KHO (ma trận phê
-  duyệt thật + phát sinh công nợ) CHƯA có — thuộc Module 7+8, Giai đoạn 3.
-  Cột `IsStandardDeal`/`CreditCheckedAt`/`CreditAvailableAtCheck` đã có sẵn
-  trong bảng `SalesOrders` nhưng còn để trống ở Giai đoạn 2.
+**Giai đoạn 3 — Kiểm soát (ĐÃ CÓ trong code):**
+- Ma trận phê duyệt bán hàng: gửi duyệt tự tính `evaluateIsStandardDeal` ngay
+  tại server (giá bán vs bảng giá, hạn mức công nợ hiệu lực trừ công nợ hiện
+  tại thật từ `DealerLedger`, số ngày công nợ) → tra `ApprovalMatrixRules`
+  đúng loại (CHUẨN/vượt hạn mức/vượt chiết khấu/cả 2) → sinh các bước duyệt
+  seat-based (engine dùng chung `ApprovalInstances`/`ApprovalSteps`, không
+  viết riêng cho Bán hàng). Duyệt/từ chối kiểm tra đúng người giữ đúng vị trí
+  ở đúng bước (không cho duyệt vượt bước) + quyền `salesApproveStandard`/
+  `salesApproveException`. Từ chối ở bất kỳ bước nào → hủy đơn + nhả tồn kho
+  ngay. Retail (B2C) trả trước bỏ qua ma trận, tự động ĐÃ DUYỆT.
+- Công nợ đại lý: sổ cái `DealerLedger` **append-only thật sự ở CSDL** (trigger
+  chặn UPDATE/DELETE), đơn ĐÃ DUYỆT → "Xuất kho" phát sinh hoá đơn công nợ +
+  xuất kho thật (`ExportSoldStock`/`FulfillSalesOrder`) trong cùng 1 giao dịch.
+  Cảnh báo tự động vượt hạn mức ngay trên danh sách đại lý.
+- API kế toán dạng Adapter (Mục 8.2): hàng đợi trung gian `AccountingSyncQueue`
+  + `server/lib/accountingAdapters.js` (interface `AccountingAdapter`, mặc
+  định `ExcelExportAdapter` — xuất CSV cho kế toán tự nhập tay, chưa xác nhận
+  phần mềm kế toán thật thì dùng tạm, đổi sau không ảnh hưởng luồng bán hàng).
+  Chiều ngược lại: `POST /api/external/payment-confirmations` (X-API-Key +
+  allowlist IP tuỳ chọn + rate limit + ghi log mọi lượt gọi).
+- **Giới hạn/quyết định thiết kế cần biết**: đơn Khách hàng dự án (không gắn
+  Đại lý cụ thể) luôn coi là CHUẨN (1 cấp duyệt) vì Module 5 chưa có khái
+  niệm hạn mức/hạng như Đại lý — xem lại nếu nghiệp vụ thực tế cần khác.
+  `MisaAdapter` mới là stub — cắm API thật khi xác nhận phần mềm kế toán.
 
 **Các giai đoạn sau (CHƯA triển khai — xem lộ trình Mục 14 tài liệu thiết kế):**
-Ma trận phê duyệt, Công nợ đại lý + API kế toán, Hợp đồng & Thanh toán,
-CRM/Đội Sale, Báo cáo tổng hợp.
+Hợp đồng & Thanh toán, CRM/Đội Sale, Báo cáo tổng hợp.
 
 ## Cấu trúc thư mục
 
@@ -49,9 +68,13 @@ server/
 │   ├── catalog.js          # Nhóm sản phẩm, Sản phẩm, Kho, Bảng giá, Hạng đại lý, Khu vực
 │   ├── inventory.js        # Tồn kho, nhập/điều chỉnh/chuyển kho, lịch sử giao dịch
 │   ├── system.js           # Nhật ký hệ thống, Cấu hình chung
-│   ├── dealers.js          # Đại lý, hạn mức/công nợ, lịch sử xét duyệt hạn mức
+│   ├── dealers.js          # Đại lý, hạn mức/công nợ, lịch sử xét duyệt hạn mức, sổ cái
 │   ├── projects.js         # Khách hàng dự án, báo giá
-│   └── sales.js            # Kênh bán hàng, đơn hàng đa kênh, tra giá theo hạng
+│   ├── sales.js            # Kênh bán hàng, đơn hàng đa kênh, phê duyệt, xuất kho/công nợ
+│   ├── finance.js          # Hàng đợi đồng bộ kế toán, xuất CSV
+│   └── external.js         # API kế toán ngoài (xác nhận thanh toán, X-API-Key)
+├── lib/
+│   └── accountingAdapters.js   # Adapter Pattern kế toán (ExcelExportAdapter mặc định)
 ├── jobs/
 │   └── expireReservations.js   # Cron giờ: tự hủy đơn CHỜ DUYỆT quá hạn giữ hàng
 ├── sql/
